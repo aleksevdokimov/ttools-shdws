@@ -1,0 +1,538 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Пользователи — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+<main class="main-content">
+    <div class="users-page">
+        <div class="users-header">
+            <h1>Управление пользователями</h1>
+            <a href="/users/create" class="btn-primary" id="add-user-btn">
+                <span class="btn-icon add-icon"></span>
+                Добавить пользователя
+            </a>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="users-filters">
+            <div class="filter-group">
+                <label for="filter-username">Логин</label>
+                <input type="text" id="filter-username" placeholder="Поиск по логину...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-email">Email</label>
+                <input type="text" id="filter-email" placeholder="Поиск по email...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-active">Статус</label>
+                <select id="filter-active">
+                    <option value="">Все</option>
+                    <option value="true">Активные</option>
+                    <option value="false">Неактивные</option>
+                </select>
+            </div>
+            <button class="btn-secondary" id="apply-filters">Применить</button>
+            <button class="btn-secondary" id="clear-filters">Очистить</button>
+        </div>
+
+        <!-- Таблица пользователей -->
+        <div class="users-table-container">
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Логин</th>
+                        <th>Email</th>
+                        <th>Роль</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody">
+                    <tr>
+                        <td colspan="6" class="loading">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Пагинация -->
+        <div class="pagination" id="pagination">
+            <!-- Пагинация будет добавлена через JS -->
+        </div>
+    </div>
+</main>
+
+<script>
+let currentPage = 1;
+let currentFilters = {
+    username: '',
+    email: '',
+    is_active: ''
+};
+
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            document.getElementById('user-login').textContent = user.username;
+            
+            // Обновляем отображение сервера в nav
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Проверка прав админа
+            if (user.role_id !== 4) {
+                window.location.href = '/';
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Загрузка списка пользователей
+async function loadUsers() {
+    try {
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: 10,
+            ...currentFilters
+        });
+        
+        // Удаляем пустые параметры
+        for (const [key, value] of params.entries()) {
+            if (!value) params.delete(key);
+        }
+        
+        const response = await fetch(`/auth/users/?${params}`, {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            renderUsers(data.users);
+            renderPagination(data);
+        } else if (response.status === 403) {
+            window.location.href = '/';
+        } else {
+            document.getElementById('users-tbody').innerHTML = 
+                '<tr><td colspan="6" class="error">Ошибка загрузки данных</td></tr>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки пользователей:', error);
+        document.getElementById('users-tbody').innerHTML = 
+            '<tr><td colspan="6" class="error">Ошибка загрузки данных</td></tr>';
+    }
+}
+
+// Отрисовка таблицы пользователей
+function renderUsers(users) {
+    const tbody = document.getElementById('users-tbody');
+    
+    if (users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Пользователи не найдены</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = users.map(user => `
+        <tr>
+            <td>${user.id}</td>
+            <td>${escapeHtml(user.username)}</td>
+            <td>${escapeHtml(user.email)}</td>
+            <td>${escapeHtml(user.role_name)}</td>
+            <td>
+                <span class="status-badge ${user.is_active ? 'active' : 'inactive'}">
+                    ${user.is_active ? 'Активен' : 'Заблокирован'}
+                </span>
+            </td>
+            <td class="actions">
+                <a href="/users/${user.id}/edit" class="action-btn edit" title="Редактировать">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                </a>
+                <button class="action-btn delete" title="Удалить" onclick="deleteUser(${user.id})">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Отрисовка пагинации
+function renderPagination(data) {
+    const pagination = document.getElementById('pagination');
+    const { page, pages, total } = data;
+    
+    if (pages <= 1) {
+        pagination.innerHTML = '';
+        return;
+    }
+    
+    let html = '';
+    
+    // Кнопка "Назад"
+    if (page > 1) {
+        html += `<a href="#" class="pagination-link" data-page="${page - 1}">← Назад</a>`;
+    }
+    
+    // Номера страниц
+    const maxVisible = 5;
+    let start = Math.max(1, page - Math.floor(maxVisible / 2));
+    let end = Math.min(pages, start + maxVisible - 1);
+    
+    if (end - start < maxVisible - 1) {
+        start = Math.max(1, end - maxVisible + 1);
+    }
+    
+    if (start > 1) {
+        html += `<a href="#" class="pagination-link" data-page="1">1</a>`;
+        if (start > 2) {
+            html += `<span class="pagination-ellipsis">...</span>`;
+        }
+    }
+    
+    for (let i = start; i <= end; i++) {
+        html += `<a href="#" class="pagination-link ${i === page ? 'active' : ''}" data-page="${i}">${i}</a>`;
+    }
+    
+    if (end < pages) {
+        if (end < pages - 1) {
+            html += `<span class="pagination-ellipsis">...</span>`;
+        }
+        html += `<a href="#" class="pagination-link" data-page="${pages}">${pages}</a>`;
+    }
+    
+    // Кнопка "Вперёд"
+    if (page < pages) {
+        html += `<a href="#" class="pagination-link" data-page="${page + 1}">Вперёд →</a>`;
+    }
+    
+    pagination.innerHTML = html;
+    
+    // Добавляем обработчики
+    pagination.querySelectorAll('.pagination-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            currentPage = parseInt(link.dataset.page);
+            loadUsers();
+        });
+    });
+}
+
+// Экранирование HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Удаление пользователя
+async function deleteUser(userId) {
+    if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/auth/users/${userId}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Пользователь успешно удалён', 'success');
+            loadUsers();
+        } else if (response.status === 400) {
+            const data = await response.json();
+            showToast(data.detail || 'Нельзя удалить этого пользователя', 'error');
+        } else {
+            showToast('Ошибка при удалении пользователя', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка удаления:', error);
+        showToast('Ошибка при удалении пользователя', 'error');
+    }
+}
+
+// Обработчики фильтров
+document.getElementById('apply-filters').addEventListener('click', () => {
+    currentFilters = {
+        username: document.getElementById('filter-username').value,
+        email: document.getElementById('filter-email').value,
+        is_active: document.getElementById('filter-active').value
+    };
+    currentPage = 1;
+    loadUsers();
+});
+
+document.getElementById('clear-filters').addEventListener('click', () => {
+    document.getElementById('filter-username').value = '';
+    document.getElementById('filter-email').value = '';
+    document.getElementById('filter-active').value = '';
+    currentFilters = { username: '', email: '', is_active: '' };
+    currentPage = 1;
+    loadUsers();
+});
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Инициализация
+loadUserData();
+loadUsers();
+</script>
+
+<style>
+.users-page {
+    padding: var(--spacing-xl);
+    max-width: 1400px;
+}
+
+.users-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.users-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--accent);
+    color: #1a1d23;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    width: auto;
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+    color: #1a1d23;
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+
+.users-filters {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-end;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.filter-group label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.filter-group input,
+.filter-group select {
+    padding: var(--spacing-sm);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    min-width: 150px;
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.users-table-container {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.users-table th,
+.users-table td {
+    padding: var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.users-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.users-table tr:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+.loading, .empty, .error {
+    text-align: center;
+    color: var(--text-muted);
+    padding: var(--spacing-xl) !important;
+}
+
+.error {
+    color: var(--error);
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-badge.active {
+    background-color: rgba(63, 185, 80, 0.2);
+    color: var(--success);
+}
+
+.status-badge.inactive {
+    background-color: rgba(248, 81, 73, 0.2);
+    color: var(--error);
+}
+
+.actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+}
+
+.action-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.action-btn.edit {
+    color: var(--accent);
+}
+
+.action-btn.edit:hover {
+    background-color: rgba(160, 176, 192, 0.2);
+}
+
+.action-btn.delete {
+    color: var(--error);
+}
+
+.action-btn.delete:hover {
+    background-color: rgba(248, 81, 73, 0.2);
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-lg);
+}
+
+.pagination-link {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.pagination-link:hover {
+    background-color: var(--border-color);
+}
+
+.pagination-link.active {
+    background-color: var(--accent);
+    color: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.pagination-ellipsis {
+    padding: var(--spacing-sm);
+    color: var(--text-muted);
+}
+</style>
+{% endblock %}

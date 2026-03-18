@@ -1,0 +1,912 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Поиск клеток — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+    <main class="main-content">
+        <div class="page-container">
+            <!-- Двухпанельная структура -->
+            <div class="map-search-container">
+                <!-- Левая панель - фильтры и список -->
+                <div class="left-panel" style="width: 650px; flex-shrink: 0;">
+                    <!-- Фильтры -->
+                    <div class="filters">
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <label for="filter-type">Тип клетки</label>
+                                <select id="filter-type">
+                                    <option value="">Любой</option>
+                                    <option value="14" selected>1-1-1-15</option>
+                                    <option value="9">3-3-3-9</option>
+                                    <option value="15">4-4-3-7</option>
+                                    <option value="16">3-4-4-7</option>
+                                    <option value="17">4-3-4-7</option>
+                                    <option value="11">4-4-4-6</option>
+                                    <option value="20">5-4-3-6</option>
+                                    <option value="10">3-4-5-6</option>
+                                    <option value="12">4-5-3-6</option>
+                                    <option value="19">4-3-5-6</option>
+                                    <option value="13">5-3-4-6</option>
+                                    <option value="18">3-5-4-6</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="filter-occupied">Занятость</label>
+                                <select id="filter-occupied">
+                                    <option value="">Любая</option>
+                                    <option value="false">Свободна</option>
+                                    <option value="true">Занята</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <label for="filter-crop">Crop (мин)</label>
+                                <select id="filter-crop">
+                                    <option value="0">0%</option>
+                                    <option value="25">25%</option>
+                                    <option value="50">50%</option>
+                                    <option value="75">75%</option>
+                                    <option value="100">100%</option>
+                                    <option value="125">125%</option>
+                                    <option value="150">150%</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="filter-wood">Wood (мин)</label>
+                                <select id="filter-wood">
+                                    <option value="0">0%</option>
+                                    <option value="25">25%</option>
+                                    <option value="50">50%</option>
+                                    <option value="75">75%</option>
+                                    <option value="100">100%</option>
+                                    <option value="125">125%</option>
+                                    <option value="150">150%</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="filter-clay">Clay (мин)</label>
+                                <select id="filter-clay">
+                                    <option value="0">0%</option>
+                                    <option value="25">25%</option>
+                                    <option value="50">50%</option>
+                                    <option value="75">75%</option>
+                                    <option value="100">100%</option>
+                                    <option value="125">125%</option>
+                                    <option value="150">150%</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="filter-iron">Iron (мин)</label>
+                                <select id="filter-iron">
+                                    <option value="0">0%</option>
+                                    <option value="25">25%</option>
+                                    <option value="50">50%</option>
+                                    <option value="75">75%</option>
+                                    <option value="100">100%</option>
+                                    <option value="125">125%</option>
+                                    <option value="150">150%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="filter-actions">
+                            <button class="btn-secondary" id="apply-filters">Поиск</button>
+                            <button class="btn-secondary" id="clear-filters">Очистить</button>
+                        </div>
+                    </div>
+
+                    <!-- Список клеток -->
+                    <div class="list-container" id="cells-list">
+                        <div class="loading">Загрузка...</div>
+                    </div>
+
+                    <!-- Пагинация -->
+                    <div class="pagination" id="pagination"></div>
+                </div>
+
+                <!-- Разделитель -->
+                <div class="panel-divider"></div>
+
+                <!-- Правая панель - карта -->
+                <div class="right-panel" style="flex: 1; min-width: 400px;">
+                    <div id="map-container">
+                        <!-- Здесь будет карта -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+<style>
+.map-search-container {
+    display: flex;
+    height: calc(100vh - 100px);
+    gap: 10px;
+}
+
+.left-panel, .right-panel {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.left-panel .list-container {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.panel-divider {
+    width: 1px;
+    background: var(--border-color);
+    flex-shrink: 0;
+}
+
+#map-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+.map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.map-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+#map-coords {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.map-grid {
+    display: grid;
+    grid-template-columns: repeat(23, 30px);
+    grid-template-rows: repeat(23, 30px);
+    gap: 1px;
+    background-color: #d3d3d3;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    position: relative;
+}
+
+.map-cell {
+    width: 30px;
+    height: 30px;
+    border: none;
+    position: relative;
+    background-color: #d0f2b3;
+}
+
+.map-cell.center {
+    box-shadow: 0 0 0 2px var(--accent);
+    z-index: 10;
+}
+
+.map-cell.border-left {
+    box-shadow: -1px 0 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-right {
+    box-shadow: 1px 0 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-top {
+    box-shadow: 0 -1px 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-bottom {
+    box-shadow: 0 1px 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-top-left {
+    box-shadow: -1px 0 0 0 red, 0 -1px 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-top-right {
+    box-shadow: 1px 0 0 0 red, 0 -1px 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-bottom-left {
+    box-shadow: -1px 0 0 0 red, 0 1px 0 0 red;
+    z-index: 5;
+}
+.map-cell.border-bottom-right {
+    box-shadow: 1px 0 0 0 red, 0 1px 0 0 red;
+    z-index: 5;
+}
+
+.map-cell.coord {
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: normal;
+}
+
+/* Цвета клеток по типам */
+.map-cell.type-14 { background-color: #ffe166; } /* 1-1-1-15 */
+.map-cell.type-9 { background-color: #ffe166; } /* 3-3-3-9 */
+.map-cell.type-15 { background-color: #889dda; } /* 4-4-3-7 */
+.map-cell.type-16 { background-color: #889dda; } /* 3-4-4-7 */
+.map-cell.type-17 { background-color: #889dda; } /* 4-3-4-7 */
+.map-cell.type-11 { background-color: #d9a2e0; } /* 4-4-4-6 */
+.map-cell.type-20 { background-color: #d9a2e0; } /* 5-4-3-6 */
+.map-cell.type-10 { background-color: #d9a2e0; } /* 3-4-5-6 */
+.map-cell.type-12 { background-color: #d9a2e0; } /* 4-5-3-6 - duplicate */
+.map-cell.type-19 { background-color: #d9a2e0; } /* 4-3-5-6 */
+.map-cell.type-13 { background-color: #d9a2e0; } /* 5-3-4-6 */
+.map-cell.type-18 { background-color: #d9a2e0; } /* 3-5-4-6 */
+
+.map-cell.oasis::after {
+    /* content: 'O'; */
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    font-size: 8px;
+    color: white;
+    text-shadow: 1px 1px 1px black;
+    font-weight: bold;
+}
+
+.page-container {
+    padding: var(--spacing-xl);
+    max-width: none;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.page-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.filters {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    align-items: stretch;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.filter-row {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    flex: 1;
+    min-width: 80px;
+}
+
+.filter-group label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.filter-group select {
+    padding: var(--spacing-sm);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+}
+
+.filter-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: flex-start;
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+
+.btn-icon {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+.btn-icon:hover {
+    background-color: var(--border-color);
+}
+
+.occupied {
+    color: var(--error);
+}
+
+.free {
+    color: var(--success);
+}
+
+.data-table {
+    font-size: 12px;
+    border-collapse: collapse;
+}
+
+.data-table th, .data-table td {
+    border-right: 1px solid var(--border-color);
+    padding: 4px 8px;
+}
+
+.data-table th:last-child, .data-table td:last-child {
+    border-right: none;
+}
+
+.btn-icon {
+    padding: 2px 4px;
+    font-size: 10px;
+}
+
+/* Стилизация полосы прокрутки */
+.left-panel .list-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.left-panel .list-container::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+.left-panel .list-container::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.left-panel .list-container::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+
+.pagination {
+    text-align: center;
+    margin-top: var(--spacing-md);
+}
+
+.pagination-link {
+    font-size: 12px;
+    margin: 0 4px;
+    padding: 4px 8px;
+    color: var(--text-primary);
+    text-decoration: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-card);
+}
+
+.pagination-link:hover {
+    background: var(--border-color);
+}
+
+.pagination-link.active {
+    background: var(--accent);
+    color: white;
+}
+
+.data-table tr.selected {
+    background-color: var(--border-color);
+    border-left: 3px solid var(--accent);
+}
+
+.data-table tr.selected .btn-icon {
+    background-color: var(--accent);
+    color: white;
+}
+
+.data-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.map-wrapper {
+    position: relative;
+    display: inline-block;  /* Чтобы wrapper не занимал всю ширину */
+}
+
+.nav-btn {
+    position: absolute;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 16px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-btn:hover {
+    background: var(--border-color);
+}
+
+.nav-up {
+    top: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.nav-down {
+    bottom: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.nav-left {
+    left: -40px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.nav-right {
+    right: -40px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.map-cell {
+    position: relative;
+}
+
+.map-cell:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    max-width: 200px;
+    min-width: 120px;  /* Минимальная ширина, чтобы текст не сжимался */
+    white-space: pre-wrap;  /* Сохраняет пробелы и разрешает перенос */
+    text-align: center;
+    z-index: 1000;
+    pointer-events: none;
+    visibility: hidden;
+    transition: visibility 0.1s ease-in-out;
+    display: block;
+    line-height: 1.4;  /* Улучшает читаемость многострочного текста */
+}
+
+.map-cell:hover::after {
+    visibility: visible;  /* Вместо opacity: 1 */
+}
+
+</style>
+
+<script>
+let currentPage = 1;
+let selectedCell = null;
+let currentFilters = {
+    type_ids: [14],
+    min_crop: 0,
+    min_wood: 0,
+    min_clay: 0,
+    min_iron: 0,
+    occupied: null
+};
+const serverId = {{ server_id }};
+const serverUrl = '{{ server_url }}';
+const fieldTypesWithImages = ['Forest', 'Clay', 'Lake', 'Mountain', 'Vulcano'];
+const meadowTypeIds = [14, 9, 15, 16, 17, 11, 20, 10, 12, 19, 13, 18];
+const meadowImages = ['Meadow_1.png', 'Meadow_2.png', 'Meadow_3.png'];
+const typeIdToImage = {
+    1: 'Forest 25.png',
+    2: 'Forest 25_25.png',
+    3: 'Clay 25.png',
+    4: 'Clay 25_25.png',
+    5: 'Mountain 25.png',
+    6: 'Mountain 25_25.png',
+    7: 'Lake 25.png',
+    8: 'Lake 50.png',
+    26: 'Mountain 50.png',
+    27: 'Forest 50.png',
+    28: 'Clay 50.png'
+};
+
+// Загрузка списка клеток
+async function loadCells() {
+    try {
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: 20,
+            ...currentFilters
+        });
+
+        // Обработка массива type_ids
+        if (currentFilters.type_ids && currentFilters.type_ids.length > 0) {
+            params.set('type_ids', currentFilters.type_ids.join(','));
+        } else {
+            params.delete('type_ids');
+        }
+
+        // Удаление пустых параметров
+        for (const [key, value] of params.entries()) {
+            if (value === null || value === undefined || value === '') {
+                params.delete(key);
+            }
+        }
+
+        const response = await fetch(`/game/api/servers/${serverId}/map-cells?${params}`, {
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            renderCells(data.cells);
+            renderPagination(data);
+            if (data.cells && data.cells.length > 0) {
+                selectCell(data.cells[0].x, data.cells[0].y);
+            }
+        } else {
+            document.getElementById('cells-list').innerHTML =
+                '<div class="error">Ошибка загрузки данных</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки клеток:', error);
+        document.getElementById('cells-list').innerHTML =
+            '<div class="error">Ошибка загрузки данных</div>';
+    }
+}
+
+// Отрисовка списка клеток
+function renderCells(cells) {
+    const container = document.getElementById('cells-list');
+
+    if (!cells || cells.length === 0) {
+        container.innerHTML = '<div class="empty">Клетки не найдены</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Коорд</th>
+                    <th>Тип</th>
+                    <th>Бонусы</th>
+                    <th>Занятость</th>
+                    <th>-></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${cells.map(cell => `
+                    <tr data-x="${cell.x}" data-y="${cell.y}">
+                        <td><a href="${serverUrl}position_details.php?x=${cell.x}&y=${cell.y}" target="_blank">(${cell.x}|${cell.y})</a></td>
+                        <td>${escapeHtml(cell.type_name)}</td>
+                        <td>
+                            ${[
+                                cell.oasis_crop ? `Crop ${cell.oasis_crop}%` : null,
+                                cell.oasis_wood ? `Wood ${cell.oasis_wood}%` : null,
+                                cell.oasis_clay ? `Clay ${cell.oasis_clay}%` : null,
+                                cell.oasis_iron ? `Iron ${cell.oasis_iron}%` : null
+                            ].filter(Boolean).join(' | ')}
+                        </td>
+                        <td>
+                            ${cell.occupied ?
+                                `<span class="occupied">${escapeHtml(cell.occupied_by || 'Занято')}</span>` :
+                                '<span class="free">Свободно</span>'
+                            }
+                        </td>
+                        <td>
+                            <button class="btn-icon" onclick="selectCell(${cell.x}, ${cell.y})" title="Показать карту">
+                                →
+                            </button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+    updateSelection();
+}
+
+// Отрисовка пагинации
+function renderPagination(data) {
+    const pagination = document.getElementById('pagination');
+    const { page, pages, total } = data;
+
+    if (pages <= 1) {
+        pagination.innerHTML = '';
+        return;
+    }
+
+    let links = [];
+    for (let i = Math.max(1, page - 2); i <= Math.min(pages, page + 2); i++) {
+        links.push(`<a href="#" class="pagination-link ${i === page ? 'active' : ''}" data-page="${i}">${i}</a>`);
+    }
+    pagination.innerHTML = links.join(' | ');
+
+    pagination.querySelectorAll('.pagination-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            currentPage = parseInt(link.dataset.page);
+            loadCells();
+        });
+    });
+}
+
+// Показать карту для выбранной клетки
+async function showMap(x, y) {
+    selectedCell = {x, y};
+    try {
+        const response = await fetch(`/game/api/servers/${serverId}/map-cells/${x}/${y}/area`, {
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            renderMap(data);
+        } else {
+            console.error('Ошибка загрузки карты');
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки карты:', error);
+    }
+}
+
+function normalizeCoord(coord, size) {
+    const maxCoord = size;
+    const minCoord = -size;
+    const range = 2 * size + 1;
+    while (coord > maxCoord) coord -= range;
+    while (coord < minCoord) coord += range;
+    return coord;
+}
+
+function getMeadowImage(cellTypeId, selectedType, realX, realY) {
+    if (selectedType === null) { // Любой
+        if (cellTypeId === 14) return 'Meadow_Crop_15.png';
+        if (cellTypeId === 9) return 'Meadow_Crop_9.png';
+        if ([15,16,17].includes(cellTypeId)) return 'Meadow_Crop_7.png';
+        if ([11,20,10,12,19,13,18].includes(cellTypeId)) return 'Meadow_Crop_6.png';
+    } else { // Выбран конкретный
+        if (cellTypeId === selectedType) {
+            if (cellTypeId === 14) return 'Meadow_Crop_15.png';
+            if (cellTypeId === 9) return 'Meadow_Crop_9.png';
+            if ([15,16,17].includes(cellTypeId)) return 'Meadow_Crop_7.png';
+            if ([11,20,10,12,19,13,18].includes(cellTypeId)) return 'Meadow_Crop_6.png';
+        } else {
+            // Случайная для остальных лугов
+            const hash = realX * 31 ^ realY * 37;
+            const imageIndex = Math.abs(hash + (realX ^ realY) * 7) % 3;
+            return meadowImages[imageIndex];
+        }
+    }
+    return null;
+}
+
+    // Отрисовка карты
+    function renderMap(data) {
+        const container = document.getElementById('map-container');
+        const size = data.size;
+
+        if (!data.cells || data.cells.length === 0) {
+            container.innerHTML = '<div>Нет данных для карты</div>';
+            return;
+        }
+
+        // Создаем карту клеток по координатам для быстрого доступа
+        const cellMap = new Map();
+        data.cells.forEach(cell => {
+            cellMap.set(`${cell.x},${cell.y}`, cell);
+        });
+
+        // Создаем сетку 23x23 с рамкой координат
+        // let html = '<div class="map-grid">';
+        // Станет:
+        let html = '<div class="map-wrapper">';
+        html += '<button class="nav-btn nav-up" onclick="shiftMap(0, 2)" title="Сдвинуть вверх">▲</button>';
+        html += '<button class="nav-btn nav-down" onclick="shiftMap(0, -2)" title="Сдвинуть вниз">▼</button>';
+        html += '<button class="nav-btn nav-left" onclick="shiftMap(-2, 0)" title="Сдвинуть влево">◀</button>';
+        html += '<button class="nav-btn nav-right" onclick="shiftMap(2, 0)" title="Сдвинуть вправо">▶</button>';
+        html += '<div class="map-grid">';
+
+        for (let dy = -11; dy <= 11; dy++) {
+            for (let dx = -11; dx <= 11; dx++) {
+                let classes = ['map-cell'];
+                let content = '';
+                let title = '';
+
+                if ((dy === -11 || dy === 11) && dx >= -10 && dx <= 10) {
+                    // Верхняя и нижняя рамки: X-координаты (без углов)
+                    const coordX = normalizeCoord(data.center_x + dx, size);
+                    classes.push('coord');
+                    content = coordX.toString();
+                    title = `X: ${coordX}`;
+                    html += `<div class="${classes.join(' ')}" data-tooltip="${title}">${content}</div>`;
+                } else if ((dx === -11 || dx === 11) && dy >= -10 && dy <= 10) {
+                    // Левая и правая рамки: Y-координаты (без углов)
+                    const coordY = normalizeCoord(data.center_y - dy, size);
+                    classes.push('coord');
+                    content = coordY.toString();
+                    title = `Y: ${coordY}`;
+                    html += `<div class="${classes.join(' ')}" data-tooltip="${title}">${content}</div>`;
+                } else if (dx >= -10 && dx <= 10 && dy >= -10 && dy <= 10) {
+                    // Игровая область
+                    const realX = normalizeCoord(data.center_x + dx, size);
+                    const realY = normalizeCoord(data.center_y - dy, size);
+                    const cell = cellMap.get(`${realX},${realY}`);
+                    const isCenter = (dx === 0 && dy === 0);
+                    const isOnBorder = Math.abs(dx) <= 3 && Math.abs(dy) <= 3 && (Math.abs(dx) === 3 || Math.abs(dy) === 3);
+                    if (isOnBorder) {
+                        if (dx === -3 && dy === -3) classes.push('border-top-left');
+                        else if (dx === 3 && dy === -3) classes.push('border-top-right');
+                        else if (dx === -3 && dy === 3) classes.push('border-bottom-left');
+                        else if (dx === 3 && dy === 3) classes.push('border-bottom-right');
+                        else if (dx === -3) classes.push('border-left');
+                        else if (dx === 3) classes.push('border-right');
+                        else if (dy === -3) classes.push('border-top');
+                        else if (dy === 3) classes.push('border-bottom');
+                    }
+                    title = `(${realX}|${realY})`;
+
+                    let imgHtml = '';
+                    if (cell) {
+                        if (cell.type_id) {
+                            classes.push(`type-${cell.type_id}`);
+                        }
+                        if (typeIdToImage[cell.type_id]) {
+                            imgHtml = `<img src="/static/png/${typeIdToImage[cell.type_id]}" style="position: absolute; left: 0; bottom: 0; z-index: 1;">`;
+                        } else if (meadowTypeIds.includes(cell.type_id)) {
+                            const selectedType = currentFilters.type_ids.length === 1 ? parseInt(currentFilters.type_ids[0]) : null;
+                            const imageName = getMeadowImage(cell.type_id, selectedType, realX, realY);
+                            if (imageName) {
+                                imgHtml = `<img src="/static/png/${imageName}" style="position: absolute; left: 0; bottom: 0; z-index: 1;">`;
+                            }
+                        } else if (cell.type_name && fieldTypesWithImages.includes(cell.type_name)) {
+                            imgHtml = `<img src="/static/png/${cell.type_name}.png" style="position: absolute; left: 0; bottom: 0; z-index: 1;">`;
+                        }
+                        if (cell.has_oasis) classes.push('oasis');
+                        title += ` - ${cell.type_name || (cell.type_id ? 'Тип ' + cell.type_id : 'Поле')}`;
+                    } else {
+                        title += ' - Нет данных';
+                    }
+
+                    if (isCenter) classes.push('center');
+                    html += `<div class="${classes.join(' ')}" data-tooltip="${title}">${content}${imgHtml}</div>`;
+                } else {
+                    // Углы рамки: пустые
+                    classes.push('coord');
+                    title = '';
+                    html += `<div class="${classes.join(' ')}" data-tooltip="${title}">${content}</div>`;
+                }
+            }
+        }
+        html += '</div>';  // Закрываем .map-grid
+        html += '</div>';  // Закрываем .map-wrapper
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+// Функция сдвига карты
+function shiftMap(deltaX, deltaY) {
+    if (!selectedCell) return;
+    const newX = selectedCell.x + deltaX;
+    const newY = selectedCell.y + deltaY;
+    selectCell(newX, newY);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Выбор клетки
+function selectCell(x, y) {
+    selectedCell = {x, y};
+    updateSelection();
+    showMap(x, y);
+}
+
+// Обновление выделения в DOM
+function updateSelection() {
+    // Снять выделение со всех строк
+    document.querySelectorAll('.data-table tr').forEach(tr => tr.classList.remove('selected'));
+    // Добавить выделение к выбранной
+    if (selectedCell) {
+        const tr = document.querySelector(`.data-table tr[data-x="${selectedCell.x}"][data-y="${selectedCell.y}"]`);
+        if (tr) tr.classList.add('selected');
+    }
+}
+
+// Функция применения фильтров
+function applyFilters() {
+    const typeValue = document.getElementById('filter-type').value;
+    const selectedTypes = typeValue ? [typeValue] : [];
+
+    currentFilters = {
+        type_ids: selectedTypes,
+        min_crop: parseInt(document.getElementById('filter-crop').value) || 0,
+        min_wood: parseInt(document.getElementById('filter-wood').value) || 0,
+        min_clay: parseInt(document.getElementById('filter-clay').value) || 0,
+        min_iron: parseInt(document.getElementById('filter-iron').value) || 0,
+        occupied: document.getElementById('filter-occupied').value || null
+    };
+    currentPage = 1;
+    loadCells();
+}
+
+// Обработчики фильтров
+document.getElementById('apply-filters').addEventListener('click', applyFilters);
+
+document.getElementById('clear-filters').addEventListener('click', () => {
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-crop').checked = false;
+    document.getElementById('filter-wood').checked = false;
+    document.getElementById('filter-clay').checked = false;
+    document.getElementById('filter-iron').checked = false;
+    document.getElementById('filter-occupied').value = '';
+
+    currentFilters = {
+        type_ids: [],
+        min_crop: 0,
+        min_wood: 0,
+        min_clay: 0,
+        min_iron: 0,
+        occupied: null
+    };
+    currentPage = 1;
+    loadCells();
+});
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    loadUserData();
+    loadCells();
+});
+</script>
+
+{% endblock %}

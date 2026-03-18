@@ -1,0 +1,325 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Деревни — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+{% set server_id = server_id %}
+<main class="main-content">
+    <div class="page-container">
+        <div class="page-header">
+            <h1>Деревни сервера: {{ server_name }}</h1>
+            <a href="/my-servers/" class="btn-secondary">Назад к серверам</a>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="filters">
+            <div class="filter-group">
+                <label for="filter-name">Название</label>
+                <input type="text" id="filter-name" placeholder="Поиск по названию...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-player">Игрок</label>
+                <input type="text" id="filter-player" placeholder="Поиск по игроку...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-coords">Координаты</label>
+                <input type="text" id="filter-coords" placeholder="x|y">
+            </div>
+            <button class="btn-secondary" id="apply-filters">Применить</button>
+            <button class="btn-secondary" id="clear-filters">Очистить</button>
+        </div>
+
+        <!-- Список деревень -->
+        <div class="list-container" id="villages-list">
+            <div class="loading">Загрузка...</div>
+        </div>
+
+        <!-- Пагинация -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+</main>
+
+
+<script>
+let currentPage = 1;
+let currentFilters = { name: '', player: '', coords: '' };
+const serverId = {{ server_id }};
+
+// Загрузка списка деревень
+async function loadVillages() {
+    try {
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: 20,
+            ...currentFilters
+        });
+        
+        for (const [key, value] of params.entries()) {
+            if (!value) params.delete(key);
+        }
+        
+        const response = await fetch(`/game/api/servers/${serverId}/villages?${params}`, {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            renderVillages(data.villages);
+            renderPagination(data);
+        } else {
+            document.getElementById('villages-list').innerHTML = 
+                '<div class="error">Ошибка загрузки данных</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки деревень:', error);
+        document.getElementById('villages-list').innerHTML = 
+            '<div class="error">Ошибка загрузки данных</div>';
+    }
+}
+
+// Отрисовка списка деревень
+function renderVillages(villages) {
+    const container = document.getElementById('villages-list');
+    
+    if (!villages || villages.length === 0) {
+        container.innerHTML = '<div class="empty">Деревни не найдены</div>';
+        return;
+    }
+    
+    container.innerHTML = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Игрок</th>
+                    <th>Координаты</th>
+                    <th>Тип</th>
+                    <th>Население</th>
+                    <th>Последняя активность</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${villages.map(village => `
+                    <tr>
+                        <td class="name-cell">${escapeHtml(village.name || '-')}</td>
+                        <td>${escapeHtml(village.player_name || 'Без владельца')}</td>
+                        <td class="coords-cell">${village.x || 0}|${village.y || 0}</td>
+                        <td>${getVillageType(village.village_type)}</td>
+                        <td>${formatNumber(village.population || 0)}</td>
+                        <td>${formatDate(village.last_seen_at)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+// Отрисовка пагинации
+function renderPagination(data) {
+    const pagination = document.getElementById('pagination');
+    const { page, pages, total } = data;
+    
+    if (pages <= 1) {
+        pagination.innerHTML = '';
+        return;
+    }
+    
+    let html = '';
+    
+    if (page > 1) {
+        html += `<a href="#" class="pagination-link" data-page="${page - 1}">← Назад</a>`;
+    }
+    
+    for (let i = 1; i <= pages && i <= 5; i++) {
+        html += `<a href="#" class="pagination-link ${i === page ? 'active' : ''}" data-page="${i}">${i}</a>`;
+    }
+    
+    if (page < pages) {
+        html += `<a href="#" class="pagination-link" data-page="${page + 1}">Вперёд →</a>`;
+    }
+    
+    pagination.innerHTML = html;
+    
+    pagination.querySelectorAll('.pagination-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            currentPage = parseInt(link.dataset.page);
+            loadVillages();
+        });
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatNumber(num) {
+    return new Intl.NumberFormat('ru-RU').format(num);
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    return date.toLocaleString('ru-RU');
+}
+
+function getVillageType(type) {
+    const types = {
+        'capital': 'Столица',
+        'normal': 'Обычная',
+        'wonder': 'Чудо света'
+    };
+    return types[type] || type || '-';
+}
+
+// Обработчики фильтров
+document.getElementById('apply-filters').addEventListener('click', () => {
+    currentFilters = {
+        name: document.getElementById('filter-name').value,
+        player: document.getElementById('filter-player').value,
+        coords: document.getElementById('filter-coords').value
+    };
+    currentPage = 1;
+    loadVillages();
+});
+
+document.getElementById('clear-filters').addEventListener('click', () => {
+    document.getElementById('filter-name').value = '';
+    document.getElementById('filter-player').value = '';
+    document.getElementById('filter-coords').value = '';
+    currentFilters = { name: '', player: '', coords: '' };
+    currentPage = 1;
+    loadVillages();
+});
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    loadUserData();
+    loadVillages();
+});
+</script>
+
+<style>
+.page-container {
+    padding: var(--spacing-xl);
+    max-width: 1400px;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.page-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.filters {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-end;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.filter-group label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.filter-group input {
+    padding: var(--spacing-sm);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    min-width: 150px;
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--bg-card);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.data-table th,
+.data-table td {
+    padding: var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    background-color: var(--bg-secondary);
+    font-weight: 600;
+}
+
+.name-cell {
+    font-weight: 600;
+}
+
+.coords-cell {
+    font-family: monospace;
+}
+
+.loading,
+.empty,
+.error {
+    padding: var(--spacing-xl);
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.pagination {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: center;
+    margin-top: var(--spacing-lg);
+}
+
+.pagination-link {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.pagination-link.active {
+    background-color: var(--accent);
+    color: #1a1d23;
+}
+</style>
+
+{% endblock %}

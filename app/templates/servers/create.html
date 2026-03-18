@@ -1,0 +1,378 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Добавить сервер — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+<main class="main-content">
+    <div class="server-create-page">
+        <div class="page-header">
+            <h1>Добавить сервер</h1>
+            <a href="/servers/" class="btn-secondary">Назад к списку</a>
+        </div>
+
+        <div class="form-container">
+            <form id="server-form" class="server-form">
+                <div class="form-group">
+                    <label for="name">Название сервера <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" required 
+                            minlength="1" maxlength="100" 
+                            placeholder="Введите название сервера">
+                </div>
+
+                <div class="form-group">
+                    <label for="url">URL сервера <span class="required">*</span></label>
+                    <input type="url" id="url" name="url" required 
+                            maxlength="255" 
+                            placeholder="https://server.example.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="info">Описание</label>
+                    <textarea id="info" name="info" rows="4" 
+                                placeholder="Введите описание сервера (необязательно)"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="speed">Скорость</label>
+                        <select id="speed" name="speed">
+                            <option value="x1">x1</option>
+                            <option value="x2">x2</option>
+                            <option value="x3">x3</option>
+                            <option value="x5">x5</option>
+                            <option value="x10">x10</option>
+                            <option value="x20">x20</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="server_type">Тип сервера</label>
+                        <select id="server_type" name="server_type">
+                            <option value="Classic">Classic</option>
+                            <option value="Pandora">Pandora</option>
+                            <option value="Arctic">Arctic</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="map_size">Размер карты</label>
+                        <select id="map_size" name="map_size">
+                            <option value="200">200</option>
+                            <option value="400" selected>400</option>
+                            <option value="800">800</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="start_date">Дата начала</label>
+                        <input type="date" id="start_date" name="start_date">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="end_date">Дата окончания</label>
+                        <input type="date" id="end_date" name="end_date">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="settings">Настройки (JSON) - дополнительно</label>
+                    <textarea id="settings" name="settings" rows="3" 
+                                placeholder='{"server_time": "UTC+1"}'></textarea>
+                    <small class="form-hint">Дополнительные настройки в формате JSON</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="is_active">Активен</label>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="is_active" name="is_active" checked>
+                        <span>Сервер активен и доступен для использования</span>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">
+                        <span class="btn-icon add-icon"></span>
+                        Создать сервер
+                    </button>
+                    <a href="/servers/" class="btn-secondary">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+
+<script>
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            document.getElementById('user-login').textContent = user.username;
+            
+            // Обновляем отображение сервера в nav
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Проверка прав (Админ=4 или Модератор=2)
+            if (user.role_id !== 4 && user.role_id !== 2) {
+                window.location.href = '/';
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Обработка отправки формы
+document.getElementById('server-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const form = e.target;
+    const formData = new FormData(form);
+    
+    // Сбор данных
+    const data = {
+        name: formData.get('name'),
+        url: formData.get('url'),
+        info: formData.get('info') || null,
+        settings: null,
+        map_size: parseInt(formData.get('map_size')) || 400,
+        is_active: formData.get('is_active') === 'on'
+    };
+    
+    // Формируем настройки из отдельных полей
+    const speed = formData.get('speed') || 'x1';
+    const serverType = formData.get('server_type') || 'Classic';
+    const mapSize = formData.get('map_size') || '400';
+    const startDate = formData.get('start_date') || null;
+    const endDate = formData.get('end_date') || null;
+    
+    // Дополнительные настройки из JSON поля
+    let extraSettings = {};
+    const settingsStr = formData.get('settings');
+    if (settingsStr && settingsStr.trim()) {
+        try {
+            extraSettings = JSON.parse(settingsStr);
+        } catch (err) {
+            showToast('Неверный формат JSON в дополнительных настройках', 'error');
+            return;
+        }
+    }
+    
+    // Объединяем настройки
+    data.settings = {
+        speed: speed,
+        server_type: serverType,
+        Size: mapSize,
+        ...(startDate && { start_date: startDate }),
+        ...(endDate && { end_date: endDate }),
+        ...extraSettings
+    };
+    
+    try {
+        const response = await fetch('/game/servers/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data),
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Сервер успешно создан', 'success');
+            window.location.href = '/servers/';
+        } else if (response.status === 403) {
+            window.location.href = '/';
+        } else if (response.status === 409) {
+            showToast('Сервер с таким URL уже существует', 'error');
+        } else {
+            const errorData = await response.json();
+            showToast(errorData.detail || 'Ошибка при создании сервера', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка при создании сервера', 'error');
+    }
+});
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Инициализация
+loadUserData();
+</script>
+
+<style>
+.server-create-page {
+    padding: var(--spacing-xl);
+    max-width: 800px;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.page-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.form-container {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: var(--spacing-xl);
+}
+
+.server-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.form-group label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.required {
+    color: var(--error);
+}
+
+.form-group input[type="text"],
+.form-group input[type="url"],
+.form-group textarea,
+.form-group select {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.form-hint {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.checkbox-wrapper span {
+    color: var(--text-secondary);
+}
+
+.form-row {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--accent);
+    color: #1a1d23;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+    color: #1a1d23;
+}
+
+.btn-secondary {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+</style>
+{% endblock %}

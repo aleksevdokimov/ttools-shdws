@@ -1,0 +1,633 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Редактирование пользователя — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+<main class="main-content">
+    <div class="form-page">
+        <div class="form-header">
+            <h1>Редактирование пользователя</h1>
+            <a href="/users/" class="btn-back">← Назад к списку</a>
+        </div>
+
+        <div class="form-card">
+            <div class="user-info-header">
+                <span class="user-id">ID: <span id="display-user-id">...</span></span>
+                <span class="status-badge" id="display-status">...</span>
+            </div>
+
+            <form id="edit-user-form" class="user-form">
+                <input type="hidden" id="user-id" name="user_id">
+                
+                <div class="form-group">
+                    <label for="username">Логин <span class="required">*</span></label>
+                    <input type="text" id="username" name="username" required 
+                            minlength="3" maxlength="50" 
+                            placeholder="Введите логин">
+                    <span class="error-message" id="username-error"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email <span class="required">*</span></label>
+                    <input type="email" id="email" name="email" required 
+                            placeholder="example@mail.ru">
+                    <span class="error-message" id="email-error"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="role_id">Роль</label>
+                    <select id="role_id" name="role_id">
+                        <option value="1">Игрок</option>
+                        <option value="2">Модератор</option>
+                        <option value="3">Альянс-модератор</option>
+                        <option value="4">Админ</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="is_active">Статус</label>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="is_active" name="is_active">
+                        <label for="is_active">Активен</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="info">Дополнительная информация</label>
+                    <textarea id="info" name="info" rows="3" 
+                                placeholder="Любая дополнительная информация о пользователе"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Сохранить изменения</button>
+                    <a href="/users/" class="btn-secondary">Отмена</a>
+                </div>
+            </form>
+
+            <hr class="divider">
+
+            <div class="danger-zone">
+                <h3>Опасная зона</h3>
+                
+                <div class="action-row">
+                    <div class="action-info">
+                        <h4>Сброс пароля</h4>
+                        <p>Установить новый пароль для пользователя</p>
+                    </div>
+                    <button class="btn-warning" id="reset-password-btn">Сбросить пароль</button>
+                </div>
+
+                <div class="action-row" id="delete-row">
+                    <div class="action-info">
+                        <h4>Удаление пользователя</h4>
+                        <p>Удалить пользователя (мягкое удаление)</p>
+                    </div>
+                    <button class="btn-danger" id="delete-user-btn">Удалить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Модальное окно для сброса пароля -->
+<div class="modal" id="password-modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Сброс пароля</h3>
+        <form id="reset-password-form">
+            <div class="form-group">
+                <label for="new-password">Новый пароль <span class="required">*</span></label>
+                <input type="password" id="new-password" name="new_password" required 
+                       minlength="5" maxlength="50" 
+                       placeholder="Введите новый пароль">
+            </div>
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сбросить</button>
+                <button type="button" class="btn-secondary" id="cancel-password">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let currentUser = null;
+let editUserId = null;
+
+// Получение ID пользователя из URL
+function getUserIdFromUrl() {
+    const path = window.location.pathname;
+    const match = path.match(/\/users\/(\d+)\/edit/);
+    return match ? parseInt(match[1]) : null;
+}
+
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            currentUser = user;
+            document.getElementById('user-login').textContent = user.username;
+            
+            // Обновляем отображение сервера в nav
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Проверка прав админа
+            if (user.role_id !== 4) {
+                window.location.href = '/';
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Загрузка данных редактируемого пользователя
+async function loadEditUser() {
+    editUserId = getUserIdFromUrl();
+    if (!editUserId) {
+        window.location.href = '/users/';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/auth/users/${editUserId}`, {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            
+            document.getElementById('user-id').value = user.id;
+            document.getElementById('display-user-id').textContent = user.id;
+            document.getElementById('username').value = user.username;
+            document.getElementById('email').value = user.email;
+            document.getElementById('role_id').value = user.role_id;
+            document.getElementById('is_active').checked = user.is_active;
+            document.getElementById('info').value = user.info || '';
+            
+            // Статус
+            const statusEl = document.getElementById('display-status');
+            if (user.is_active) {
+                statusEl.textContent = 'Активен';
+                statusEl.className = 'status-badge active';
+            } else {
+                statusEl.textContent = 'Заблокирован';
+                statusEl.className = 'status-badge inactive';
+            }
+            
+            // Если удалён - скрываем кнопку удаления
+            if (user.deleted_at) {
+                document.getElementById('delete-row').style.display = 'none';
+            }
+            
+            // Если это сам админ - скрываем удаление
+            if (editUserId === currentUser?.id) {
+                document.getElementById('delete-row').style.display = 'none';
+            }
+        } else if (response.status === 404) {
+            showToast('Пользователь не найден', 'error');
+            window.location.href = '/users/';
+        } else {
+            showToast('Ошибка загрузки данных пользователя', 'error');
+            window.location.href = '/users/';
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка загрузки данных', 'error');
+        window.location.href = '/users/';
+    }
+}
+
+// Обработка формы редактирования
+document.getElementById('edit-user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Очистка ошибок
+    document.querySelectorAll('.error-message').forEach(el => el.textContent = '');
+    document.querySelectorAll('.form-group').forEach(el => el.classList.remove('has-error'));
+    
+    const formData = {
+        username: document.getElementById('username').value,
+        email: document.getElementById('email').value,
+        role_id: parseInt(document.getElementById('role_id').value),
+        is_active: document.getElementById('is_active').checked,
+        info: document.getElementById('info').value || null
+    };
+    
+    try {
+        const response = await fetch(`/auth/users/${editUserId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData),
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Изменения сохранены', 'success');
+            loadEditUser(); // Перезагрузить данные
+        } else if (response.status === 409) {
+            const data = await response.json();
+            showError('username', 'Пользователь с таким логином или email уже существует');
+        } else if (response.status === 422) {
+            const data = await response.json();
+            for (const [field, message] of Object.entries(data.detail || {})) {
+                showError(field, message);
+            }
+        } else {
+            showToast('Ошибка при сохранении', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка при сохранении', 'error');
+    }
+});
+
+function showError(field, message) {
+    const errorEl = document.getElementById(`${field}-error`);
+    if (errorEl) {
+        errorEl.textContent = message;
+    }
+    const formGroup = document.querySelector(`[name="${field}"]`)?.closest('.form-group');
+    if (formGroup) {
+        formGroup.classList.add('has-error');
+    }
+}
+
+// Сброс пароля
+document.getElementById('reset-password-btn').addEventListener('click', () => {
+    document.getElementById('password-modal').style.display = 'flex';
+});
+
+document.getElementById('cancel-password').addEventListener('click', () => {
+    document.getElementById('password-modal').style.display = 'none';
+    document.getElementById('new-password').value = '';
+});
+
+document.getElementById('reset-password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const newPassword = document.getElementById('new-password').value;
+    
+    try {
+        const response = await fetch(`/auth/users/${editUserId}/reset-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ new_password: newPassword }),
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Пароль успешно сброшен', 'success');
+            document.getElementById('password-modal').style.display = 'none';
+            document.getElementById('new-password').value = '';
+        } else {
+            showToast('Ошибка при сбросе пароля', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка при сбросе пароля', 'error');
+    }
+});
+
+// Удаление пользователя
+document.getElementById('delete-user-btn').addEventListener('click', async () => {
+    if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/auth/users/${editUserId}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Пользователь удалён', 'success');
+            window.location.href = '/users/';
+        } else if (response.status === 400) {
+            const data = await response.json();
+            showToast(data.detail || 'Нельзя удалить этого пользователя', 'error');
+        } else {
+            showToast('Ошибка при удалении', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка при удалении', 'error');
+    }
+});
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Инициализация
+loadUserData().then(() => loadEditUser());
+</script>
+
+<style>
+.form-page {
+    padding: var(--spacing-xl);
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+.form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.form-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-back {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.btn-back:hover {
+    color: var(--accent-hover);
+}
+
+.form-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: var(--spacing-xl);
+}
+
+.user-info-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.user-id {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.user-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.required {
+    color: var(--error);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-group.has-error input,
+.form-group.has-error select,
+.form-group.has-error textarea {
+    border-color: var(--error);
+}
+
+.error-message {
+    font-size: 0.75rem;
+    color: var(--error);
+    min-height: 1rem;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.checkbox-group label {
+    margin: 0;
+    cursor: pointer;
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.btn-primary {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--accent);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+
+.btn-warning {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: #f0a500;
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-warning:hover {
+    background-color: #d4940a;
+}
+
+.btn-danger {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--error);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-danger:hover {
+    background-color: #d93c36;
+}
+
+.divider {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: var(--spacing-xl) 0;
+}
+
+.danger-zone h3 {
+    color: var(--error);
+    font-size: 1rem;
+    margin-bottom: var(--spacing-md);
+}
+
+.action-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    margin-bottom: var(--spacing-md);
+}
+
+.action-info h4 {
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    margin-bottom: var(--spacing-xs);
+}
+
+.action-info p {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin: 0;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-badge.active {
+    background-color: rgba(63, 185, 80, 0.2);
+    color: var(--success);
+}
+
+.status-badge.inactive {
+    background-color: rgba(248, 81, 73, 0.2);
+    color: var(--error);
+}
+
+/* Модальное окно */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: var(--spacing-xl);
+    max-width: 400px;
+    width: 90%;
+}
+
+.modal-content h3 {
+    margin-bottom: var(--spacing-lg);
+    color: var(--text-primary);
+}
+
+.modal-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+}
+</style>
+{% endblock %}

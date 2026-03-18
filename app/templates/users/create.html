@@ -1,0 +1,339 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Создание пользователя — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+<main class="main-content">
+    <div class="form-page">
+        <div class="form-header">
+            <h1>Создание пользователя</h1>
+            <a href="/users/" class="btn-back">← Назад к списку</a>
+        </div>
+
+        <div class="form-card">
+            <form id="create-user-form" class="user-form">
+                <div class="form-group">
+                    <label for="username">Логин <span class="required">*</span></label>
+                    <input type="text" id="username" name="username" required 
+                            minlength="3" maxlength="50" 
+                            placeholder="Введите логин">
+                    <span class="error-message" id="username-error"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email <span class="required">*</span></label>
+                    <input type="email" id="email" name="email" required 
+                            placeholder="example@mail.ru">
+                    <span class="error-message" id="email-error"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Пароль <span class="required">*</span></label>
+                    <input type="password" id="password" name="password" required 
+                            minlength="5" maxlength="50" 
+                            placeholder="Введите пароль">
+                    <span class="error-message" id="password-error"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="role_id">Роль</label>
+                    <select id="role_id" name="role_id">
+                        <option value="1">Игрок</option>
+                        <option value="2">Модератор</option>
+                        <option value="3">Альянс-модератор</option>
+                        <option value="4">Админ</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="is_active">Статус</label>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="is_active" name="is_active" checked>
+                        <label for="is_active">Активен</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="info">Дополнительная информация</label>
+                    <textarea id="info" name="info" rows="3" 
+                                placeholder="Любая дополнительная информация о пользователе"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Создать пользователя</button>
+                    <a href="/users/" class="btn-secondary">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+
+<script>
+let currentUser = null;
+
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            currentUser = user;
+            document.getElementById('user-login').textContent = user.username;
+            
+            // Обновляем отображение сервера в nav
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Проверка прав админа
+            if (user.role_id !== 4) {
+                window.location.href = '/';
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Обработка формы создания
+document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Очистка ошибок
+    document.querySelectorAll('.error-message').forEach(el => el.textContent = '');
+    document.querySelectorAll('.form-group').forEach(el => el.classList.remove('has-error'));
+    
+    const formData = {
+        username: document.getElementById('username').value,
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        role_id: parseInt(document.getElementById('role_id').value),
+        is_active: document.getElementById('is_active').checked,
+        info: document.getElementById('info').value || null
+    };
+    
+    try {
+        const response = await fetch('/auth/users/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData),
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Пользователь успешно создан', 'success');
+            window.location.href = '/users/';
+        } else if (response.status === 409) {
+            const data = await response.json();
+            showError('username', 'Пользователь с таким логином или email уже существует');
+        } else if (response.status === 422) {
+            const data = await response.json();
+            for (const [field, message] of Object.entries(data.detail || {})) {
+                showError(field, message);
+            }
+        } else {
+                showToast('Ошибка при создании пользователя', 'error');
+            }
+    } catch (error) {
+        console.error('Ошибка:', error);
+            showToast('Ошибка при создании пользователя', 'error');
+    }
+});
+
+function showError(field, message) {
+    const errorEl = document.getElementById(`${field}-error`);
+    if (errorEl) {
+        errorEl.textContent = message;
+    }
+    const formGroup = document.querySelector(`[name="${field}"]`)?.closest('.form-group');
+    if (formGroup) {
+        formGroup.classList.add('has-error');
+    }
+}
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Инициализация
+loadUserData();
+</script>
+
+<style>
+.form-page {
+    padding: var(--spacing-xl);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.form-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-back {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.btn-back:hover {
+    color: var(--accent-hover);
+}
+
+.form-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: var(--spacing-xl);
+}
+
+.user-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.required {
+    color: var(--error);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: var(--text-muted);
+}
+
+.form-group.has-error input,
+.form-group.has-error select,
+.form-group.has-error textarea {
+    border-color: var(--error);
+}
+
+.error-message {
+    font-size: 0.75rem;
+    color: var(--error);
+    min-height: 1rem;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.checkbox-group label {
+    margin: 0;
+    cursor: pointer;
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.btn-primary {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--accent);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+</style>
+{% endblock %}

@@ -1,0 +1,88 @@
+<!-- Отладка: server_id={{ server_id }}, dynamic={{ dynamic }} -->
+{#
+    Боковая панель навигации
+    
+    Параметры:
+    - show_users: показывать ссылку на пользователей (по умолчанию false)
+    - show_servers: показывать ссылку на серверы (по умолчанию false)
+    - show_my_servers: показывать ссылку на мои серверы (по умолчанию true)
+    - dynamic: включить динамический показ ссылок на основе роли пользователя (по умолчанию false)
+    - server_id: ID сервера для игровых ссылок (по умолчанию none)
+#}
+{% set show_users = show_users | default(true) %}
+{% set show_servers = show_servers | default(true) %}
+{% set show_my_servers = show_my_servers | default(true) %}
+{% set dynamic = dynamic | default(false) %}
+{% set server_id = server_id | default(none) %}
+
+<aside class="sidebar">
+    <nav class="sidebar-nav"> 
+        
+        <div class="sidebar-section-block">
+            {% if show_servers or dynamic %}
+                <a href="/servers/" class="sidebar-link"{% if dynamic %} id="servers-link" style="display: none;"{% endif %}>
+                    <span class="sidebar-icon servers-icon"></span>
+                    Серверы
+                </a>
+            {% endif %}
+
+            {% if show_users or dynamic %}
+                <a href="/users/" class="sidebar-link"{% if dynamic %} id="users-link" style="display: none;"{% endif %}>
+                    <span class="sidebar-icon users-icon"></span>
+                    Пользователи
+                </a>
+            {% endif %}
+        </div>
+        <div class="sidebar-divider"></div>
+
+        {% if show_my_servers or dynamic %}
+            <a href="/my-servers/" class="sidebar-link"{% if dynamic %} id="my-servers-link" style="display: none;"{% endif %}>
+                <span class="sidebar-icon servers-icon"></span>
+                Мои серверы
+            </a>
+        {% endif %}
+        
+
+        {% if server_id %}
+            <div class="sidebar-section-block">
+                <div class="sidebar-section-title">Выбранный сервер</div>
+                <a href="/game/servers/{{ server_id }}/map-search" class="sidebar-link">
+                    <span class="sidebar-icon villages-icon"></span>
+                    Поиск клеток
+                </a>
+                <a href="/game/servers/{{ server_id }}/alliances" class="sidebar-link">
+                    <span class="sidebar-icon alliances-icon"></span>
+                    Альянсы
+                </a>
+                <a href="/game/servers/{{ server_id }}/players" class="sidebar-link">
+                    <span class="sidebar-icon players-icon"></span>
+                    Игроки
+                </a>
+                <a href="/game/servers/{{ server_id }}/villages" class="sidebar-link">
+                    <span class="sidebar-icon villages-icon"></span>
+                    Деревни
+                </a>
+            </div>
+        {% elif dynamic %}
+            <div class="sidebar-section-block" id="selected-server-section" style="display: none;">
+                <div class="sidebar-section-title" id="selected-server-title" style="display: none;">Выбранный сервер</div>
+                <a href="/game/servers/0/map-search" id="game-map-search-link" class="sidebar-link" style="display: none;">
+                    <span class="sidebar-icon villages-icon"></span>
+                    Поиск клеток
+                </a>
+                <a href="/game/servers/0/alliances" id="game-alliances-link" class="sidebar-link" style="display: none;">
+                    <span class="sidebar-icon alliances-icon"></span>
+                    Альянсы
+                </a>
+                <a href="/game/servers/0/players" id="game-players-link" class="sidebar-link" style="display: none;">
+                    <span class="sidebar-icon players-icon"></span>
+                    Игроки
+                </a>
+                <a href="/game/servers/0/villages" id="game-villages-link" class="sidebar-link" style="display: none;">
+                    <span class="sidebar-icon villages-icon"></span>
+                    Деревни
+                </a>
+            </div>
+        {% endif %}
+    </nav>
+</aside>

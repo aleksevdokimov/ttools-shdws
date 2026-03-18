@@ -1,0 +1,147 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Главная — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+{% set dynamic = true %}
+
+<main class="main-content">
+    <div class="home-container">
+        <div class="home-header">
+            <h1>Добро пожаловать, <span id="user-name">...</span></h1>
+            <p>Проект создан для сообщества «Легкий путь в Python»</p>
+        </div>
+
+        <div class="card">
+            <h2>О проекте</h2>
+            <p>
+                Это стартовая сборка FastAPI с интегрированной SQLAlchemy 2. 
+                Проект включает аутентификацию, авторизацию и управление пользователями.
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>Быстрый старт</h2>
+            <p>
+                Используйте API эндпоинты для регистрации и входа:
+            </p>
+            <ul style="margin-top: 12px; padding-left: 20px;">
+                <li><code>POST /auth/register/</code> — регистрация пользователя</li>
+                <li><code>POST /auth/login/</code> — вход в систему</li>
+                <li><code>GET /auth/me/</code> — получить данные текущего пользователя</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Документация API</h2>
+            <p>
+                Полная документация доступна по адресу <a href="/docs">/docs</a>
+            </p>
+        </div>
+    </div>
+</main>
+
+<script>
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            document.getElementById('user-name').textContent = user.username;
+            // Обновляем имя пользователя
+            const userLogin = document.getElementById('user-login');
+            if (userLogin) {
+                userLogin.textContent = user.username;
+            }
+            
+            // Обновляем отображение сервера в nav
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            } else {
+                updateNavServer(null, null);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Показываем ссылку "Мои серверы" для всех авторизованных пользователей
+            if (document.getElementById('my-servers-link')) {
+                document.getElementById('my-servers-link').style.display = 'flex';
+            }
+            
+            // Показываем ссылку "Серверы" для модератора и выше (role_id >= 3)
+            if (user.role_id === 4 || user.role_id === 2) {
+                if (document.getElementById('servers-link')) {
+                    document.getElementById('servers-link').style.display = 'flex';
+                }
+            }
+
+            // Показываем ссылку "Пользователи" для админа и выше (role_id >= 4)
+            if (user.role_id = 4) {
+                if (document.getElementById('users-link')) {
+                    document.getElementById('users-link').style.display = 'flex';
+                }
+            }
+        } else {
+            // Токен невалиден - редирект на login
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Обновление навигации с сервером
+function updateNavServer(serverName, playerName) {
+    const serverContainer = document.getElementById('nav-server-container');
+    const serverLink = document.getElementById('nav-server-link');
+    const playerSpan = document.getElementById('nav-player');
+    
+    // Отображение игрока (слева от сервера)
+    if (playerSpan) {
+        if (playerName) {
+            playerSpan.textContent = playerName;
+            playerSpan.title = 'Игрок';
+        } else {
+            playerSpan.textContent = 'Не выбран';
+            playerSpan.title = 'Игрок не связан с аккаунтом';
+        }
+        playerSpan.style.display = 'inline';
+    }
+    
+    // Отображение сервера (справа от игрока)
+    if (serverContainer && serverLink) {
+        serverLink.textContent = serverName;
+        serverContainer.style.display = 'flex';
+    }
+}
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Загружаем данные при загрузке страницы
+loadUserData();
+</script>
+{% endblock %}

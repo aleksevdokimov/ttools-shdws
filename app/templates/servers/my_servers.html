@@ -1,0 +1,654 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Мои серверы — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+{% set dynamic = true %}
+
+<main class="main-content">
+    <div class="my-servers-page">
+        <div class="my-servers-header">
+            <h1>Мои серверы</h1>
+        </div>
+
+        <!-- Контейнер для панелей серверов -->
+        <div class="servers-list" id="servers-list">
+            <div class="loading">Загрузка...</div>
+        </div>
+    </div>
+</main>
+
+<!-- Модальное окно выбора сервера -->
+<div class="modal" id="server-select-modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Выберите сервер</h2>
+            <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="available-servers-list" id="available-servers-list">
+                <div class="loading">Загрузка доступных серверов...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            
+            // Обновляем имя пользователя
+            const userLogin = document.getElementById('user-login');
+            if (userLogin) {
+                userLogin.textContent = user.username;
+            }
+            
+            // Обновляем nav в зависимости от выбранного сервера
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            } else {
+                updateNavServer(null, null);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Показываем ссылку "Мои серверы" для всех авторизованных пользователей
+            if (document.getElementById('my-servers-link')) {
+                document.getElementById('my-servers-link').style.display = 'flex';
+            }
+            
+            // Показываем ссылку "Серверы" для админа (role_id = 4) и модератора (role_id = 2)
+            if (user.role_id === 4 || user.role_id === 2) {
+                if (document.getElementById('servers-link')) {
+                    document.getElementById('servers-link').style.display = 'flex';
+                }
+            }
+
+            // Показываем ссылку "Пользователи" только для админа (role_id = 4)
+            if (user.role_id === 4) {
+                if (document.getElementById('users-link')) {
+                    document.getElementById('users-link').style.display = 'flex';
+                }
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Загрузка списка серверов пользователя
+async function loadUserServers() {
+    try {
+        const response = await fetch('/game/user-servers/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const servers = await response.json();
+            renderServers(servers);
+        } else if (response.status === 403) {
+            window.location.href = '/';
+        } else {
+            document.getElementById('servers-list').innerHTML = 
+                '<div class="error">Ошибка загрузки серверов</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки серверов:', error);
+        document.getElementById('servers-list').innerHTML = 
+            '<div class="error">Ошибка загрузки серверов</div>';
+    }
+}
+
+// Отрисовка списка серверов
+function renderServers(servers) {
+    const container = document.getElementById('servers-list');
+    
+    if (servers.length === 0) {
+        container.innerHTML = `
+            <div class="server-panel add-server-panel" id="add-server-panel">
+                <span class="add-icon-large">+</span>
+                <span class="add-text">Добавить сервер</span>
+            </div>
+        `;
+        document.getElementById('add-server-panel').addEventListener('click', openServerModal);
+        return;
+    }
+    
+    container.innerHTML = servers.map(server => `
+        <div class="server-panel ${server.is_active ? 'selected' : ''}" data-server-id="${server.server_id}">
+            <div class="server-panel-header">
+                <h3 class="server-name">${escapeHtml(server.server_name)}</h3>
+                <div class="server-actions">
+                    <button class="action-btn select-btn ${server.is_active ? 'active' : ''}"
+                            title="${server.is_active ? 'Открепить' : 'Выбрать'}"
+                            onclick="selectServer(${server.server_id}, ${server.is_active})">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </button>
+                    <button class="action-btn delete-btn" title="Удалить" onclick="removeServer(${server.server_id})">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="server-panel-body">
+                <div class="server-info-row">
+                    <span class="server-label">URL:</span>
+                    <a href="${escapeHtml(server.server_url)}" target="_blank" class="server-url">${escapeHtml(server.server_url)}</a>
+                </div>
+                <div class="server-info-row">
+                    <span class="server-label">Скорость:</span>
+                    <span class="server-speed">${escapeHtml(server.server_speed)}</span>
+                </div>
+                <div class="server-info-row">
+                    <span class="server-label">Аккаунт:</span>
+                    <span class="server-player ${server.player_verified ? 'verified' : 'not-verified'}">
+                        ${server.player_name ? escapeHtml(server.player_name) : 'Не привязан'}
+                        ${server.player_verified ? '✓' : ''}
+                    </span>
+                </div>
+            </div>
+        </div>
+    `).join('') + `
+        <div class="server-panel add-server-panel" id="add-server-panel">
+            <span class="add-icon-large">+</span>
+            <span class="add-text">Добавить сервер</span>
+        </div>
+    `;
+    
+    // Добавляем обработчики
+    document.getElementById('add-server-panel').addEventListener('click', openServerModal);
+}
+
+// Открытие модального окна выбора сервера
+async function openServerModal() {
+    const modal = document.getElementById('server-select-modal');
+    const listContainer = document.getElementById('available-servers-list');
+    
+    modal.style.display = 'flex';
+    
+    try {
+        const response = await fetch('/game/servers/active/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const servers = await response.json();
+            
+            if (servers.length === 0) {
+                listContainer.innerHTML = '<div class="empty">Нет доступных серверов для добавления</div>';
+                return;
+            }
+            
+            listContainer.innerHTML = servers.map(server => `
+                <div class="available-server-item" onclick="addServer(${server.id})">
+                    <div class="available-server-name">${escapeHtml(server.name)}</div>
+                    <div class="available-server-info">
+                        <span class="server-url-small">${escapeHtml(server.url)}</span>
+                        <span class="server-speed-badge">${escapeHtml(server.speed)}</span>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = '<div class="error">Ошибка загрузки серверов</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        listContainer.innerHTML = '<div class="error">Ошибка загрузки серверов</div>';
+    }
+}
+
+// Закрытие модального окна
+document.getElementById('modal-close').addEventListener('click', () => {
+    document.getElementById('server-select-modal').style.display = 'none';
+});
+
+// Закрытие по клику вне модального окна
+document.getElementById('server-select-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'server-select-modal') {
+        e.target.style.display = 'none';
+    }
+});
+
+// Добавление сервера
+async function addServer(serverId) {
+    try {
+        const response = await fetch(`/game/user-servers/?server_id=${serverId}`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Сервер добавлен', 'success');
+            document.getElementById('server-select-modal').style.display = 'none';
+            loadUserServers();
+            loadUserData(); // Обновить данные пользователя
+        } else {
+            const data = await response.json();
+            showToast(data.detail || 'Ошибка при добавлении сервера', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка добавления:', error);
+        showToast('Ошибка при добавлении сервера', 'error');
+    }
+}
+
+// Выбор/открепление сервера
+async function selectServer(serverId, isActive) {
+    try {
+        let url, successMessage;
+
+        if (isActive) {
+            // Открепление сервера
+            url = `/game/user-servers/${serverId}/deselect`;
+            successMessage = 'Сервер откреплён';
+        } else {
+            // Выбор сервера
+            url = `/game/user-servers/${serverId}/select`;
+            successMessage = 'Сервер выбран';
+        }
+        const response = await fetch(url, {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            showToast(successMessage, 'success');
+            if (isActive) {
+                // При откреплении сразу обновляем nav
+                updateNavServer(null, null);
+                updateGameLinks(null);
+            } 
+            loadUserServers();
+            loadUserData(); // Обновить данные пользователя и nav
+        } else {
+            showToast(`Ошибка при ${isActive ? 'откреплении' : 'выборе'} сервера`, 'error');
+        }
+    } catch (error) {
+        showToast(`Ошибка при ${isActive ? 'откреплении' : 'выборе'} сервера`, 'error');
+    }
+}
+
+// Удаление сервера
+async function removeServer(serverId) {
+    if (!confirm('Вы уверены, что хотите удалить этот сервер из списка?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/game/user-servers/${serverId}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Сервер удалён', 'success');
+            loadUserServers();
+            loadUserData(); // Обновить данные пользователя
+        } else {
+            showToast('Ошибка при удалении сервера', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка удаления:', error);
+        showToast('Ошибка при удалении сервера', 'error');
+    }
+}
+
+// Экранирование HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Инициализация
+loadUserData();
+loadUserServers();
+</script>
+
+<style>
+.my-servers-page {
+    padding: var(--spacing-xl);
+    max-width: 900px;
+}
+
+.my-servers-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.my-servers-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.servers-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.server-panel {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: var(--spacing-md);
+    transition: all 0.2s ease;
+}
+
+.server-panel:hover {
+    border-color: var(--accent);
+}
+
+.server-panel.selected {
+    background-color: rgba(63, 185, 80, 0.1);
+    border-color: var(--success);
+}
+
+.server-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+}
+
+.server-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.server-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.server-actions .action-btn {
+    width: 32px;
+    height: 32px;
+    padding: 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.server-actions .action-btn:hover {
+    background-color: var(--border-color);
+}
+
+.server-actions .select-btn.active {
+    background-color: var(--success);
+    border-color: var(--success);
+    color: white;
+}
+
+.server-actions .delete-btn:hover {
+    background-color: var(--error);
+    border-color: var(--error);
+    color: white;
+}
+
+.server-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.server-info-row {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.server-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+    min-width: 80px;
+}
+
+.server-url {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.server-url:hover {
+    text-decoration: underline;
+}
+
+.server-speed {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.server-player {
+    color: var(--text-primary);
+}
+
+.server-player.verified {
+    color: var(--success);
+}
+
+.server-player.not-verified {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Панель добавления */
+.add-server-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    cursor: pointer;
+    border-style: dashed;
+    background-color: transparent;
+}
+
+.add-server-panel:hover {
+    background-color: rgba(63, 185, 80, 0.05);
+    border-color: var(--accent);
+}
+
+.add-icon-large {
+    font-size: 2rem;
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-sm);
+}
+
+.add-text {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.add-server-panel:hover .add-icon-large,
+.add-server-panel:hover .add-text {
+    color: var(--accent);
+}
+
+/* Кнопка добавления */
+.btn-primary {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--accent);
+    color: #1a1d23;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+    color: #1a1d23;
+}
+
+/* Модальное окно */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background-color: var(--bg-card);
+    border-radius: 8px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: var(--spacing-md);
+    overflow-y: auto;
+}
+
+.available-servers-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.available-server-item {
+    padding: var(--spacing-md);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.available-server-item:hover {
+    border-color: var(--accent);
+    background-color: rgba(63, 185, 80, 0.1);
+}
+
+.available-server-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.available-server-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.server-url-small {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.server-speed-badge {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    background-color: var(--accent);
+    color: #1a1d23;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.loading, .empty, .error {
+    text-align: center;
+    color: var(--text-muted);
+    padding: var(--spacing-xl) !important;
+}
+
+.error {
+    color: var(--error);
+}
+
+.btn-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+}
+
+.add-icon {
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1d23' stroke-width='2'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") no-repeat center;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,478 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Редактировать сервер — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+<main class="main-content">
+    <div class="server-edit-page">
+        <div class="page-header">
+            <h1>Редактировать сервер</h1>
+            <a href="/servers/" class="btn-secondary">Назад к списку</a>
+        </div>
+
+        <div class="form-container">
+            <form id="server-form" class="server-form">
+                <input type="hidden" id="server_id" value="{{ server_id }}">
+                
+                <div class="form-group">
+                    <label for="name">Название сервера <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" required 
+                            minlength="1" maxlength="100" 
+                            placeholder="Введите название сервера">
+                </div>
+
+                <div class="form-group">
+                    <label for="url">URL сервера <span class="required">*</span></label>
+                    <input type="url" id="url" name="url" required 
+                            maxlength="255" 
+                            placeholder="https://server.example.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="info">Описание</label>
+                    <textarea id="info" name="info" rows="4" 
+                                placeholder="Введите описание сервера (необязательно)"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="speed">Скорость</label>
+                        <select id="speed" name="speed">
+                            <option value="x1">x1</option>
+                            <option value="x2">x2</option>
+                            <option value="x3">x3</option>
+                            <option value="x5">x5</option>
+                            <option value="x10">x10</option>
+                            <option value="x20">x20</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="server_type">Тип сервера</label>
+                        <select id="server_type" name="server_type">
+                            <option value="Classic">Classic</option>
+                            <option value="Pandora">Pandora</option>
+                            <option value="Arctic">Arctic</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="map_size">Размер карты</label>
+                        <select id="map_size" name="map_size">
+                            <option value="200">200</option>
+                            <option value="400">400</option>
+                            <option value="800">800</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="start_date">Дата начала</label>
+                        <input type="date" id="start_date" name="start_date">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="end_date">Дата окончания</label>
+                        <input type="date" id="end_date" name="end_date">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="settings">Настройки (JSON) - дополнительно</label>
+                    <textarea id="settings" name="settings" rows="3" 
+                                placeholder='{"server_time": "UTC+1"}'></textarea>
+                    <small class="form-hint">Дополнительные настройки в формате JSON</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="is_active">Активен</label>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="is_active" name="is_active">
+                        <span>Сервер активен и доступен для использования</span>
+                    </div>
+                </div>
+
+                <div class="server-info" id="server-info">
+                    <p>ID: <span id="info-id">-</span></p>
+                    <p>Создан: <span id="info-created">-</span></p>
+                    <p>Обновлён: <span id="info-updated">-</span></p>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">
+                        <span class="btn-icon save-icon"></span>
+                        Сохранить изменения
+                    </button>
+                    <a href="/servers/" class="btn-secondary">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+
+<script>
+const serverId = {{ server_id }};
+
+// Загрузка данных пользователя
+async function loadUserData() {
+    try {
+        const response = await fetch('/auth/me/', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            document.getElementById('user-login').textContent = user.username;
+            
+            // Обновляем отображение сервера в nav
+            if (user.selected_server_name) {
+                updateNavServer(user.selected_server_name, user.player_name);
+            }
+            
+            // Обновляем ссылки на альянсы, игроков и деревни
+            if (user.selected_server_id) {
+                updateGameLinks(user.selected_server_id);
+            }
+            
+            // Проверка прав (Админ=4 или Модератор=2)
+            if (user.role_id !== 4 && user.role_id !== 2) {
+                window.location.href = '/';
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+    }
+}
+
+// Загрузка данных сервера
+async function loadServer() {
+    try {
+        const response = await fetch(`/game/servers/${serverId}`, {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const server = await response.json();
+            
+            // Парсим настройки
+            let settings = {};
+            try {
+                settings = typeof server.settings === 'string' ? JSON.parse(server.settings) : (server.settings || {});
+            } catch (e) {
+                settings = {};
+            }
+            
+            // Заполнение формы
+            document.getElementById('name').value = server.name || '';
+            document.getElementById('url').value = server.url || '';
+            document.getElementById('info').value = server.info || '';
+            document.getElementById('is_active').checked = server.is_active;
+            
+            // Заполняем отдельные поля
+            if (settings.speed) {
+                document.getElementById('speed').value = settings.speed;
+            }
+            if (settings.server_type) {
+                document.getElementById('server_type').value = settings.server_type;
+            }
+            if (settings.Size) {
+                document.getElementById('map_size').value = settings.Size;
+            }
+            if (settings.start_date) {
+                document.getElementById('start_date').value = settings.start_date;
+            }
+            if (settings.end_date) {
+                document.getElementById('end_date').value = settings.end_date;
+            }
+            
+            // Убираем служебные поля из JSON для отображения
+            const displaySettings = { ...settings };
+            delete displaySettings.speed;
+            delete displaySettings.server_type;
+            delete displaySettings.Size;
+            delete displaySettings.start_date;
+            delete displaySettings.end_date;
+            
+            document.getElementById('settings').value = Object.keys(displaySettings).length > 0 ? JSON.stringify(displaySettings, null, 2) : '';
+            
+            // Информация о сервере
+            document.getElementById('info-id').textContent = server.id;
+            document.getElementById('info-created').textContent = new Date(server.created_at).toLocaleString('ru-RU');
+            document.getElementById('info-updated').textContent = new Date(server.updated_at).toLocaleString('ru-RU');
+        } else if (response.status === 403) {
+            window.location.href = '/';
+        } else if (response.status === 404) {
+            showToast('Сервер не найден', 'error');
+            window.location.href = '/servers/';
+        } else {
+            showToast('Ошибка загрузки данных сервера', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка загрузки данных сервера', 'error');
+    }
+}
+
+// Обработка отправки формы
+document.getElementById('server-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const form = e.target;
+    const formData = new FormData(form);
+    
+    // Сбор данных
+    const data = {
+        name: formData.get('name'),
+        url: formData.get('url'),
+        info: formData.get('info') || null,
+        settings: null,
+        map_size: parseInt(formData.get('map_size')) || 400,
+        is_active: formData.get('is_active') === 'on'
+    };
+    
+    // Формируем настройки из отдельных полей
+    const speed = formData.get('speed') || 'x1';
+    const serverType = formData.get('server_type') || 'Classic';
+    const mapSize = formData.get('map_size') || '400';
+    const startDate = formData.get('start_date') || null;
+    const endDate = formData.get('end_date') || null;
+    
+    // Дополнительные настройки из JSON поля
+    let extraSettings = {};
+    const settingsStr = formData.get('settings');
+    if (settingsStr && settingsStr.trim()) {
+        try {
+            extraSettings = JSON.parse(settingsStr);
+        } catch (err) {
+            showToast('Неверный формат JSON в дополнительных настройках', 'error');
+            return;
+        }
+    }
+    
+    // Объединяем настройки
+    data.settings = {
+        speed: speed,
+        server_type: serverType,
+        Size: mapSize,
+        ...(startDate && { start_date: startDate }),
+        ...(endDate && { end_date: endDate }),
+        ...extraSettings
+    };
+    
+    try {
+        const response = await fetch(`/game/servers/${serverId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data),
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            showToast('Сервер успешно обновлён', 'success');
+            window.location.href = '/servers/';
+        } else if (response.status === 403) {
+            window.location.href = '/';
+        } else if (response.status === 409) {
+            showToast('Сервер с таким URL уже существует', 'error');
+        } else {
+            const errorData = await response.json();
+            showToast(errorData.detail || 'Ошибка при обновлении сервера', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showToast('Ошибка при обновлении сервера', 'error');
+    }
+});
+
+// Обработка выхода
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('Ошибка выхода:', error);
+    }
+});
+
+// Инициализация
+loadUserData();
+loadServer();
+</script>
+
+<style>
+.server-edit-page {
+    padding: var(--spacing-xl);
+    max-width: 800px;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.page-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.form-container {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: var(--spacing-xl);
+}
+
+.server-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.form-group label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.required {
+    color: var(--error);
+}
+
+.form-group input[type="text"],
+.form-group input[type="url"],
+.form-group textarea,
+.form-group select {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.form-hint {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.checkbox-wrapper span {
+    color: var(--text-secondary);
+}
+
+.form-row {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+.server-info {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.server-info p {
+    margin: 0;
+    padding: var(--spacing-xs) 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.server-info span {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--accent);
+    color: #1a1d23;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+    color: #1a1d23;
+}
+
+.btn-secondary {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+</style>
+{% endblock %}

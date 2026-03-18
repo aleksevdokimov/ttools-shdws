@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ site_name }}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', path='/favicon.ico') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        {% include 'partials/nav.html' %}
+        <div class="app-layout">
+            {% include 'partials/sidebar.html' %}
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    <script src="{{ url_for('static', path='/js/toast.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/nav.js') }}"></script>
+    <script>
+        // Инициализация навигации при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            initNav();
+        });
+    </script>
+    <script src="{{ url_for('static', path='/js/sidebar.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

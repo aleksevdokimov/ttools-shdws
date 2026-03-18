@@ -1,0 +1,133 @@
+{% extends "layout/auth_base.html" %}
+
+{% block title %}Регистрация — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h1>Регистрация</h1>
+            <p>Создайте новый аккаунт</p>
+        </div>
+
+        <form id="register-form" class="auth-form">
+            <div class="form-group">
+                <label for="username">Логин</label>
+                <input 
+                    type="text" 
+                    id="username" 
+                    name="username" 
+                    required 
+                    placeholder="Придумайте логин"
+                    minlength="3"
+                    maxlength="50"
+                    autocomplete="username"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    required 
+                    placeholder="example@mail.ru"
+                    autocomplete="email"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    name="password" 
+                    required 
+                    placeholder="Минимум 5 символов"
+                    minlength="5"
+                    maxlength="50"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="confirm_password">Подтверждение пароля</label>
+                <input 
+                    type="password" 
+                    id="confirm_password" 
+                    name="confirm_password" 
+                    required 
+                    placeholder="Повторите пароль"
+                    minlength="5"
+                    maxlength="50"
+                >
+            </div>
+
+            <div id="form-error" class="form-error" style="display: none;"></div>
+            <div id="form-success" class="form-success" style="display: none;"></div>
+
+            <button type="submit" class="btn-primary">Зарегистрироваться</button>
+        </form>
+
+        <div class="auth-footer">
+            <p>Уже есть аккаунт? <a href="/login">Войти</a></p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const username = document.getElementById('username').value;
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const confirm_password = document.getElementById('confirm_password').value;
+    
+    const errorDiv = document.getElementById('form-error');
+    const successDiv = document.getElementById('form-success');
+    
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    
+    // Проверка совпадения паролей
+    if (password !== confirm_password) {
+        errorDiv.textContent = 'Пароли не совпадают';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/auth/register/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                username,
+                email,
+                password,
+                confirm_password
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            successDiv.textContent = 'Регистрация успешна! Теперь вы можете войти.';
+            successDiv.style.display = 'block';
+            // Перенаправление на страницу входа через 2 секунды
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 2000);
+        } else {
+            errorDiv.textContent = data.detail || 'Ошибка регистрации';
+            errorDiv.style.display = 'block';
+        }
+    } catch (error) {
+        errorDiv.textContent = 'Произошла ошибка. Попробуйте снова.';
+        errorDiv.style.display = 'block';
+    }
+});
+</script>
+{% endblock %}

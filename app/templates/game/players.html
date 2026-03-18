@@ -1,0 +1,318 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Игроки — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+{% set server_id = server_id %}
+<main class="main-content">
+    <div class="page-container">
+        <div class="page-header">
+            <h1>Игроки сервера: {{ server_name }}</h1>
+            <a href="/my-servers/" class="btn-secondary">Назад к серверам</a>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="filters">
+            <div class="filter-group">
+                <label for="filter-name">Имя</label>
+                <input type="text" id="filter-name" placeholder="Поиск по имени...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-alliance">Альянс</label>
+                <input type="text" id="filter-alliance" placeholder="Поиск по альянсу...">
+            </div>
+            <button class="btn-secondary" id="apply-filters">Применить</button>
+            <button class="btn-secondary" id="clear-filters">Очистить</button>
+        </div>
+
+        <!-- Список игроков -->
+        <div class="list-container" id="players-list">
+            <div class="loading">Загрузка...</div>
+        </div>
+
+        <!-- Пагинация -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+</main>
+
+<script>
+let currentPage = 1;
+let currentFilters = { name: '', alliance: '' };
+const serverId = {{ server_id }};
+
+// Загрузка списка игроков
+async function loadPlayers() {
+    try {
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: 20,
+            ...currentFilters
+        });
+        
+        for (const [key, value] of params.entries()) {
+            if (!value) params.delete(key);
+        }
+        
+        const response = await fetch(`/game/api/servers/${serverId}/players?${params}`, {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            renderPlayers(data.players);
+            renderPagination(data);
+        } else {
+            document.getElementById('players-list').innerHTML = 
+                '<div class="error">Ошибка загрузки данных</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки игроков:', error);
+        document.getElementById('players-list').innerHTML = 
+            '<div class="error">Ошибка загрузки данных</div>';
+    }
+}
+
+// Отрисовка списка игроков
+function renderPlayers(players) {
+    const container = document.getElementById('players-list');
+    
+    if (!players || players.length === 0) {
+        container.innerHTML = '<div class="empty">Игроки не найдены</div>';
+        return;
+    }
+    
+    container.innerHTML = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Имя</th>
+                    <th>Альянс</th>
+                    <th>Деревень</th>
+                    <th>Население</th>
+                    <th>Раса</th>
+                    <th>Последняя активность</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${players.map(player => `
+                    <tr>
+                        <td class="name-cell">${escapeHtml(player.name)}</td>
+                        <td>${escapeHtml(player.alliance_tag || '-')}</td>
+                        <td>${player.villages_count || 0}</td>
+                        <td>${formatNumber(player.population || 0)}</td>
+                        <td>${getRaceName(player.race_id)}</td>
+                        <td>${formatDate(player.last_seen_at)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+// Отрисовка пагинации
+function renderPagination(data) {
+    const pagination = document.getElementById('pagination');
+    const { page, pages, total } = data;
+    
+    if (pages <= 1) {
+        pagination.innerHTML = '';
+        return;
+    }
+    
+    let html = '';
+    
+    if (page > 1) {
+        html += `<a href="#" class="pagination-link" data-page="${page - 1}">← Назад</a>`;
+    }
+    
+    for (let i = 1; i <= pages && i <= 5; i++) {
+        html += `<a href="#" class="pagination-link ${i === page ? 'active' : ''}" data-page="${i}">${i}</a>`;
+    }
+    
+    if (page < pages) {
+        html += `<a href="#" class="pagination-link" data-page="${page + 1}">Вперёд →</a>`;
+    }
+    
+    pagination.innerHTML = html;
+    
+    pagination.querySelectorAll('.pagination-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            currentPage = parseInt(link.dataset.page);
+            loadPlayers();
+        });
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatNumber(num) {
+    return new Intl.NumberFormat('ru-RU').format(num);
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    return date.toLocaleString('ru-RU');
+}
+
+function getRaceName(raceId) {
+    const races = {
+        1: 'Romans',
+        2: 'Teutons',
+        3: 'Gauls',
+        4: 'Nature',
+        5: 'Natars',
+        6: 'Egyptians',
+        7: 'Huns',
+        8: 'Spartans'
+    };
+    return races[raceId] || '-';
+}
+
+// Обработчики фильтров
+document.getElementById('apply-filters').addEventListener('click', () => {
+    currentFilters = {
+        name: document.getElementById('filter-name').value,
+        alliance: document.getElementById('filter-alliance').value
+    };
+    currentPage = 1;
+    loadPlayers();
+});
+
+document.getElementById('clear-filters').addEventListener('click', () => {
+    document.getElementById('filter-name').value = '';
+    document.getElementById('filter-alliance').value = '';
+    currentFilters = { name: '', alliance: '' };
+    currentPage = 1;
+    loadPlayers();
+});
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    loadUserData();
+    loadPlayers();
+});
+</script>
+
+<style>
+.page-container {
+    padding: var(--spacing-xl);
+    max-width: 1400px;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.page-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.filters {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-end;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.filter-group label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.filter-group input {
+    padding: var(--spacing-sm);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    min-width: 200px;
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--bg-card);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.data-table th,
+.data-table td {
+    padding: var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    background-color: var(--bg-secondary);
+    font-weight: 600;
+}
+
+.name-cell {
+    font-weight: 600;
+}
+
+.loading,
+.empty,
+.error {
+    padding: var(--spacing-xl);
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.pagination {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: center;
+    margin-top: var(--spacing-lg);
+}
+
+.pagination-link {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.pagination-link.active {
+    background-color: var(--accent);
+    color: #1a1d23;
+}
+</style>
+
+{% endblock %}
