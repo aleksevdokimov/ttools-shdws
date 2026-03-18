@@ -8,11 +8,13 @@ from app.auth.utils import authenticate_user, set_tokens, get_password_hash
 from app.dependencies.auth_dep import get_current_user, get_current_admin_user, check_refresh_token, get_current_superadmin_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.exceptions import UserAlreadyExistsException, IncorrectEmailOrPasswordException, UserNotFoundException
-from app.auth.dao import UsersDAO
+from app.auth.dao import UsersDAO, RegistrationTokensDAO
 from app.game.dao import UserServerDAO, ServerDAO, PlayerDAO
 from app.auth.schemas import (
     SUserRegister, SUserAuth, UsernameModel, EmailModel, SUserAddDB, SUserInfo,
-    SUserUpdate, SUserCreate, SPasswordReset, SUserListResponse
+    SUserUpdate, SUserCreate, SPasswordReset, SUserListResponse,
+    SRegistrationTokenCreate, SRegistrationToken, SRegistrationTokenUpdate, SRegistrationTokenListResponse,
+    SGenerateKeysRequest
 )
 
 router = APIRouter()
@@ -88,16 +90,26 @@ async def register_user(user_data: SUserRegister,
     if existing_email:
         raise UserAlreadyExistsException
 
+    # Проверка токена
+    tokens_dao = RegistrationTokensDAO(session)
+    token = await tokens_dao.get_valid_token(user_data.token)
+    if not token:
+        raise HTTPException(status_code=400, detail="Неверный или использованный токен")
+
     # Подготовка данных для добавления
     user_data_dict = user_data.model_dump()
     user_data_dict.pop('confirm_password', None)
+    user_data_dict.pop('token', None)
     
     # Хешируем пароль
     from app.auth.utils import get_password_hash
     user_data_dict['password_hash'] = get_password_hash(user_data_dict.pop('password'))
 
     # Добавление пользователя
-    await user_dao.add(values=SUserAddDB(**user_data_dict))
+    user = await user_dao.add(values=SUserAddDB(**user_data_dict))
+
+    # Пометить токен как использованный
+    await tokens_dao.mark_used(token.id, user.id)
 
     return {'message': 'Вы успешно зарегистрированы!'}
 
@@ -397,6 +409,111 @@ async def reset_password(
         .values(password_hash=new_hash)
     )
     await session.execute(stmt)
-    await session.flush()
-    
+    await session.commit()
+
     return {"message": "Пароль успешно сброшен"}
+
+
+@router.get("/keys/", response_model=SRegistrationTokenListResponse)
+async def get_keys(
+    page: int = 1,
+    per_page: int = 10,
+    token: str | None = None,
+    used: bool | None = None,
+    session: AsyncSession = Depends(get_session_without_commit),
+    admin: User = Depends(get_current_admin_user)
+) -> SRegistrationTokenListResponse:
+    """
+    Получение списка регистрационных токенов с пагинацией и фильтрами.
+    Доступно для админа и выше.
+    """
+    tokens_dao = RegistrationTokensDAO(session)
+    tokens, total = await tokens_dao.find_paginated_with_filters(
+        page=page, per_page=per_page, token=token, used=used
+    )
+    return SRegistrationTokenListResponse(
+        tokens=tokens, total=total, page=page, per_page=per_page,
+        pages=(total + per_page - 1) // per_page
+    )
+
+
+@router.post("/keys/", response_model=SRegistrationToken)
+async def create_key(
+    key_data: SRegistrationTokenCreate,
+    session: AsyncSession = Depends(get_session_with_commit),
+    admin: User = Depends(get_current_admin_user)
+) -> SRegistrationToken:
+    """
+    Создание нового регистрационного токена.
+    Доступно для админа и выше.
+    """
+    tokens_dao = RegistrationTokensDAO(session)
+    key = await tokens_dao.add(values=key_data)
+    return key
+
+
+@router.put("/keys/{key_id}", response_model=SRegistrationToken)
+async def update_key(
+    key_id: int,
+    key_data: SRegistrationTokenUpdate,
+    session: AsyncSession = Depends(get_session_with_commit),
+    admin: User = Depends(get_current_admin_user)
+) -> SRegistrationToken:
+    """
+    Обновление регистрационного токена.
+    Доступно для админа и выше.
+    """
+    from sqlalchemy import update
+    stmt = (
+        update(RegistrationTokensDAO.model)
+        .where(RegistrationTokensDAO.model.id == key_id)
+        .values(**key_data.model_dump(exclude_unset=True))
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+    # Получить обновленный токен
+    tokens_dao = RegistrationTokensDAO(session)
+    key = await tokens_dao.find_one_or_none_by_id(key_id)
+    if not key:
+        raise HTTPException(status_code=404, detail="Токен не найден")
+    return key
+
+
+@router.delete("/keys/{key_id}")
+async def delete_key(
+    key_id: int,
+    session: AsyncSession = Depends(get_session_with_commit),
+    admin: User = Depends(get_current_admin_user)
+) -> dict:
+    """
+    Удаление регистрационного токена.
+    Доступно для админа и выше.
+    """
+    from sqlalchemy import delete
+    stmt = delete(RegistrationTokensDAO.model).where(RegistrationTokensDAO.model.id == key_id)
+    result = await session.execute(stmt)
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Токен не найден")
+    return {"message": "Токен успешно удален"}
+
+
+@router.post("/keys/generate")
+async def generate_keys(
+    request: SGenerateKeysRequest,
+    session: AsyncSession = Depends(get_session_with_commit),
+    admin: User = Depends(get_current_admin_user)
+) -> dict:
+    """
+    Генерация указанного количества регистрационных токенов.
+    Доступно для админа и выше.
+    """
+    tokens_dao = RegistrationTokensDAO(session)
+    tokens = await tokens_dao.generate_tokens(request.count)
+    await session.commit()
+
+    return {
+        "message": f"Сгенерировано {len(tokens)} токенов",
+        "tokens": [{"id": t.id, "token": t.token} for t in tokens]
+    }

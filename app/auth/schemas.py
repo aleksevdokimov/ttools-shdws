@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Self
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator, computed_field
 
@@ -20,6 +21,7 @@ class UserBase(EmailModel, UsernameModel):
 class SUserRegister(UsernameModel, EmailModel):
     password: str = Field(min_length=5, max_length=50, description="Пароль, от 5 до 50 знаков")
     confirm_password: str = Field(min_length=5, max_length=50, description="Повторите пароль")
+    token: str = Field(description="Регистрационный токен")
 
     @model_validator(mode="after")
     def check_password(self) -> Self:
@@ -94,3 +96,42 @@ class SRoleInfo(BaseModel):
     id: int = Field(description="ID роли")
     name: str = Field(description="Название роли")
     model_config = ConfigDict(from_attributes=True)
+
+
+class SRegistrationTokenCreate(BaseModel):
+    """Схема для создания регистрационного токена."""
+    token: str = Field(description="Уникальный токен")
+    comment: str | None = Field(default=None, description="Комментарий к токену")
+    expires_at: datetime | None = Field(default=None, description="Дата истечения токена")
+
+
+class SRegistrationToken(BaseModel):
+    """Схема для чтения регистрационного токена."""
+    id: int = Field(description="ID токена")
+    token: str = Field(description="Уникальный токен")
+    used_by_user_id: int | None = Field(default=None, description="ID пользователя, использовавшего токен")
+    used_at: datetime | None = Field(default=None, description="Дата использования токена")
+    expires_at: datetime | None = Field(default=None, description="Дата истечения токена")
+    comment: str | None = Field(default=None, description="Комментарий к токену")
+    created_at: datetime = Field(description="Дата создания токена")
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SRegistrationTokenUpdate(BaseModel):
+    """Схема для обновления регистрационного токена."""
+    comment: str | None = Field(default=None, description="Комментарий к токену")
+    expires_at: datetime | None = Field(default=None, description="Дата истечения токена")
+
+
+class SRegistrationTokenListResponse(BaseModel):
+    """Схема ответа со списком токенов."""
+    tokens: list[SRegistrationToken] = Field(description="Список токенов")
+    total: int = Field(description="Общее количество токенов")
+    page: int = Field(description="Текущая страница")
+    per_page: int = Field(description="Записей на странице")
+    pages: int = Field(description="Всего страниц")
+
+
+class SGenerateKeysRequest(BaseModel):
+    """Схема запроса для генерации ключей."""
+    count: int = Field(ge=1, le=30, description="Количество ключей для генерации")

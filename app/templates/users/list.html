@@ -8,10 +8,16 @@
     <div class="users-page">
         <div class="users-header">
             <h1>Управление пользователями</h1>
-            <a href="/users/create" class="btn-primary" id="add-user-btn">
-                <span class="btn-icon add-icon"></span>
-                Добавить пользователя
-            </a>
+            <div class="header-actions">
+                <a href="/keys" class="btn-primary" id="keys-btn">
+                    <span class="btn-icon key-icon"></span>
+                    Ключи
+                </a>
+                <a href="/users/create" class="btn-primary" id="add-user-btn">
+                    <span class="btn-icon add-icon"></span>
+                    Добавить пользователя
+                </a>
+            </div>
         </div>
 
         <!-- Фильтры -->
@@ -46,12 +52,13 @@
                         <th>Email</th>
                         <th>Роль</th>
                         <th>Статус</th>
+                        <th>Ключ</th>
                         <th>Действия</th>
                     </tr>
                 </thead>
                 <tbody id="users-tbody">
                     <tr>
-                        <td colspan="6" class="loading">Загрузка...</td>
+                        <td colspan="7" class="loading">Загрузка...</td>
                     </tr>
                 </tbody>
             </table>

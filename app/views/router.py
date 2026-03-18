@@ -278,3 +278,26 @@ async def map_search_page(request: Request, server_id: int, user: User = Depends
             # "dynamic": True,
         }
     )
+
+
+@router.get("/keys", response_class=HTMLResponse)
+async def keys_page(request: Request, admin: User = Depends(get_current_admin_user)):
+    """
+    Страница управления регистрационными ключами. Требует прав админа.
+    """
+    return templates.TemplateResponse(
+        "auth/keys.html",
+        {
+            "request": request,
+            "site_name": settings.SITE_NAME,
+            "dynamic": True,
+        }
+    )
+
+
+@router.get("/users/keys", response_class=HTMLResponse)
+async def users_keys_page(request: Request, admin: User = Depends(get_current_admin_user)):
+    """
+    Алиас для страницы ключей.
+    """
+    return RedirectResponse("/keys")

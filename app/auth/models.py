@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq
@@ -32,5 +33,23 @@ class User(Base):
     user_servers: Mapped[list["UserServer"]] = relationship("UserServer", back_populates="user")
     players: Mapped[list["Player"]] = relationship("Player", back_populates="user")
 
+    # Отношение к registration token
+    registration_token: Mapped["RegistrationToken"] = relationship("RegistrationToken", back_populates="user", uselist=False)
+
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id})"
+
+
+class RegistrationToken(Base):
+    token: Mapped[str] = mapped_column(unique=True, nullable=False)
+    used_by_user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
+    used_at: Mapped[datetime] = mapped_column(nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(nullable=True)
+    comment: Mapped[str] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
+
+    # Отношение к пользователю
+    user: Mapped["User"] = relationship("User", back_populates="registration_token")
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(id={self.id}, token={self.token})"

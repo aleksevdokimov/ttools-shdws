@@ -565,3 +565,215 @@ a:hover {
     background-color: #64b4ff !important;
     border: 1px solid #4da3ff !important;
 }
+
+/* Стили для расположения кнопок в ряд */
+.header-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.header-actions .btn-primary {
+    width: auto;
+}
+
+/* Модальное окно */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+    background-color: var(--bg-card);
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.close {
+    color: var(--text-color);
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover {
+    color: var(--accent);
+}
+
+/* Стили для textarea в формах */
+.form-group textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 1rem;
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-group textarea:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.form-group textarea::placeholder {
+    color: var(--text-muted);
+}
+
+/* Стили для кнопок в модальном окне */
+.modal .btn-primary {
+    width: auto;
+    margin-top: 15px;
+}
+
+/* Стили для страницы управления ключами */
+.users-page {
+    padding: var(--spacing-xl);
+    max-width: 1200px;
+}
+
+.users-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.users-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.generate-keys-group {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-sm);
+}
+
+.generate-keys-group input {
+    width: 80px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    text-align: center;
+    font-family: var(--font-family);
+    font-size: 1rem;
+    height: 36px;
+    box-sizing: border-box;
+}
+
+.btn-narrow {
+    width: auto;
+    padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.users-filters {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-end;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.filter-group label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.filter-group input,
+.filter-group select {
+    padding: var(--spacing-sm);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    min-width: 200px;
+}
+
+.btn-secondary {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background-color: var(--border-color);
+}
+
+.users-table-container {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.users-table th,
+.users-table td {
+    padding: var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.users-table th {
+    background-color: var(--bg-card);
+    font-weight: 600;
+}
+
+.pagination {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: center;
+    margin-top: var(--spacing-lg);
+}
+
+.pagination-link {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+}
+
+.pagination-link:hover,
+.pagination-link.active {
+    background-color: var(--accent);
+    color: #1a1d23;
+}
