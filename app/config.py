@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     DEBUG: Union[bool, str] = False
     # Настройки scheduler
     SCHEDULER_ENABLED: bool = True
-    SCHEDULER_UPDATE_INTERVAL_HOURS: int = 1
+    SCHEDULER_UPDATE_INTERVAL_HOURS: int = 5
     
     @field_validator('DEBUG', mode='before')
     @classmethod

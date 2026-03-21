@@ -2,6 +2,7 @@ from datetime import datetime
 from sqlalchemy import text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq
+from app.core.roles import RoleEnum
 
 # Импорт моделей для корректной работы SQLAlchemy relationships
 # Эти модели нужны для string references в relationship()
@@ -22,6 +23,10 @@ class User(Base):
     deleted_at: Mapped[str] = mapped_column(default=None, nullable=True)
     role_id: Mapped[int] = mapped_column(ForeignKey('roles.id'), default=1, server_default=text("1"))
     role: Mapped["Role"] = relationship("Role", back_populates="users", lazy="joined")
+
+    @property
+    def role_enum(self) -> RoleEnum:
+        return RoleEnum(self.role_id)
     
     # Хеш пароля
     password_hash: Mapped[str] = mapped_column(default="", nullable=False)

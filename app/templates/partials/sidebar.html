@@ -9,8 +9,8 @@
     - dynamic: включить динамический показ ссылок на основе роли пользователя (по умолчанию false)
     - server_id: ID сервера для игровых ссылок (по умолчанию none)
 #}
-{% set show_users = show_users | default(true) %}
-{% set show_servers = show_servers | default(true) %}
+{% set show_users = show_users | default(false) %}
+{% set show_servers = show_servers | default(false) %}
 {% set show_my_servers = show_my_servers | default(true) %}
 {% set dynamic = dynamic | default(false) %}
 {% set server_id = server_id | default(none) %}

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.models import User
 from app.limiter import limiter
 from app.auth.utils import authenticate_user, set_tokens, get_password_hash
-from app.dependencies.auth_dep import get_current_user, get_current_admin_user, check_refresh_token, get_current_superadmin_user
+from app.dependencies.auth_dep import get_current_user, get_current_admin_user, check_refresh_token, get_current_moderator_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.exceptions import UserAlreadyExistsException, IncorrectEmailOrPasswordException, UserNotFoundException
 from app.auth.dao import UsersDAO, RegistrationTokensDAO
@@ -157,7 +157,7 @@ async def get_all_users(
 ) -> SUserListResponse:
     """
     Получение списка всех пользователей с пагинацией.
-    Доступно для админа (role_id = 3) и суперадмина (role_id = 4).
+    Доступно для админа (role_id = 4)
     
     Примечание: Дублирует /auth/users/, оставлен для обратной совместимости.
     """
@@ -197,7 +197,7 @@ async def get_users(
     email: str | None = None,
     is_active: str | None = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    admin: User = Depends(get_current_superadmin_user)
+    admin: User = Depends(get_current_admin_user)
 ) -> SUserListResponse:
     """
     Получение списка пользователей с пагинацией и фильтрацией.
@@ -232,11 +232,11 @@ async def get_users(
 async def create_user(
     user_data: SUserCreate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_superadmin_user)
+    admin: User = Depends(get_current_admin_user)
 ) -> SUserInfo:
     """
     Создание нового пользователя.
-    Доступно только для Суперадмина (role_id = 4).
+    Доступно только для Админа (role_id = 4).
     """
     users_dao = UsersDAO(session)
     
@@ -289,7 +289,7 @@ async def create_user(
 async def get_user(
     user_id: int,
     session: AsyncSession = Depends(get_session_without_commit),
-    admin: User = Depends(get_current_superadmin_user)
+    admin: User = Depends(get_current_admin_user)
 ) -> SUserInfo:
     """
     Получение пользователя по ID.
@@ -307,7 +307,7 @@ async def update_user(
     user_id: int,
     user_data: SUserUpdate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_superadmin_user)
+    admin: User = Depends(get_current_admin_user)
 ) -> SUserInfo:
     """
     Обновление пользователя.
@@ -357,7 +357,7 @@ async def update_user(
 async def delete_user(
     user_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_superadmin_user)
+    admin: User = Depends(get_current_admin_user)
 ) -> dict:
     """
     Мягкое удаление пользователя.
@@ -385,7 +385,7 @@ async def reset_password(
     user_id: int,
     password_data: SPasswordReset,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_superadmin_user)
+    admin: User = Depends(get_current_admin_user)
 ) -> dict:
     """
     Сброс пароля пользователя.
@@ -421,7 +421,7 @@ async def get_keys(
     token: str | None = None,
     used: bool | None = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    admin: User = Depends(get_current_admin_user)
+    admin: User = Depends(get_current_moderator_user)
 ) -> SRegistrationTokenListResponse:
     """
     Получение списка регистрационных токенов с пагинацией и фильтрами.
@@ -441,7 +441,7 @@ async def get_keys(
 async def create_key(
     key_data: SRegistrationTokenCreate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    admin: User = Depends(get_current_moderator_user)
 ) -> SRegistrationToken:
     """
     Создание нового регистрационного токена.
@@ -457,7 +457,7 @@ async def update_key(
     key_id: int,
     key_data: SRegistrationTokenUpdate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    admin: User = Depends(get_current_moderator_user)
 ) -> SRegistrationToken:
     """
     Обновление регистрационного токена.
@@ -484,7 +484,7 @@ async def update_key(
 async def delete_key(
     key_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    admin: User = Depends(get_current_moderator_user)
 ) -> dict:
     """
     Удаление регистрационного токена.
@@ -503,7 +503,7 @@ async def delete_key(
 async def generate_keys(
     request: SGenerateKeysRequest,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    admin: User = Depends(get_current_moderator_user)
 ) -> dict:
     """
     Генерация указанного количества регистрационных токенов.

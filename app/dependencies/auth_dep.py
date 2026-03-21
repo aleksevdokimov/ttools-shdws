@@ -57,7 +57,7 @@ async def get_current_user(
         token: str = Depends(get_access_token),
         session: AsyncSession = Depends(get_session_without_commit)
 ) -> User:
-    """Проверяем access_token и возвращаем пользователя."""
+    """Проверяем access_token и возвращаем пользователя"""
     try:
         # Декодируем токен
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -82,15 +82,15 @@ async def get_current_user(
     return user
 
 
-async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
-    """Проверяем права пользователя как администратора."""
-    if Role.is_admin(current_user.role_id):
+async def get_current_moderator_user(current_user: User = Depends(get_current_user)) -> User:
+    """Проверяем права пользователя как модератора"""
+    if Role.is_moderator(current_user.role_id):
         return current_user
     raise ForbiddenException
 
 
-async def get_current_superadmin_user(current_user: User = Depends(get_current_user)) -> User:
-    """Проверяем права пользователя как суперадминистратора."""
-    if Role.is_superadmin(current_user.role_id):
+async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    """Проверяем права пользователя как администратора"""
+    if Role.is_admin(current_user.role_id):
         return current_user
     raise ForbiddenException
