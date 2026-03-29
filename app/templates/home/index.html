@@ -84,7 +84,7 @@ async function loadUserData() {
             }
 
             // Показываем ссылку "Пользователи" для админа и выше (role_id >= 4)
-            if (user.role_id = 4) {
+            if (user.role_id === 4) {
                 if (document.getElementById('users-link')) {
                     document.getElementById('users-link').style.display = 'flex';
                 }

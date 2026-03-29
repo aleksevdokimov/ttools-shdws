@@ -52,7 +52,7 @@ async def get_servers(
 ) -> ServerListResponse:
     """
     Получение списка серверов с пагинацией и фильтрацией.
-    Доступно для Админа (id=3) и Модератора (id=2).
+    Доступно для Админа (id=4) и Модератора (id=2).
     """
     # Преобразуем is_active из строки в bool
     is_active_bool = None
@@ -92,7 +92,7 @@ async def create_server(
 ) -> ServerResponse:
     """
     Создание нового сервера.
-    Доступно для Админа (id=3) и Модератора (id=2).
+    Доступно для Админа (id=4) и Модератора (id=2).
     """
     server_dao = ServerDAO(session)
     
@@ -124,7 +124,7 @@ async def get_server(
 ) -> ServerResponse:
     """
     Получение сервера по ID.
-    Доступно для Админа (id=3) и Модератора (id=2).
+    Доступно для Админа (id=4) и Модератора (id=2).
     """
     server_dao = ServerDAO(session)
     server = await server_dao.find_one_or_none_by_id(server_id)
@@ -142,7 +142,7 @@ async def update_server(
 ) -> ServerResponse:
     """
     Обновление сервера.
-    Доступно для Админа (id=3) и Модератора (id=2).
+    Доступно для Админа (id=4) и Модератора (id=2).
     """
     server_dao = ServerDAO(session)
     
@@ -196,7 +196,7 @@ async def delete_server(
 ) -> dict:
     """
     Мягкое удаление сервера.
-    Доступно для Админа (id=3) и Модератора (id=2).
+    Доступно для Админа (id=4) и Модератора (id=2).
     """
     server_dao = ServerDAO(session)
     
@@ -218,7 +218,7 @@ async def restore_server(
 ) -> dict:
     """
     Восстановление удалённого сервера.
-    Доступно для Админа (id=3) и Модератора (id=2).
+    Доступно для Админа (id=4) и Модератора (id=2).
     """
     server_dao = ServerDAO(session)
     

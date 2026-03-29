@@ -11,7 +11,7 @@
 #}
 {% set show_users = show_users | default(false) %}
 {% set show_servers = show_servers | default(false) %}
-{% set show_my_servers = show_my_servers | default(true) %}
+{% set show_my_servers = show_my_servers | default(false) %}
 {% set dynamic = dynamic | default(false) %}
 {% set server_id = server_id | default(none) %}
 
@@ -19,14 +19,14 @@
     <nav class="sidebar-nav"> 
         
         <div class="sidebar-section-block">
-            {% if show_servers or dynamic %}
+            {% if show_servers%}
                 <a href="/servers/" class="sidebar-link"{% if dynamic %} id="servers-link" style="display: none;"{% endif %}>
                     <span class="sidebar-icon servers-icon"></span>
                     Серверы
                 </a>
             {% endif %}
 
-            {% if show_users or dynamic %}
+            {% if show_users%}
                 <a href="/users/" class="sidebar-link"{% if dynamic %} id="users-link" style="display: none;"{% endif %}>
                     <span class="sidebar-icon users-icon"></span>
                     Пользователи
@@ -35,7 +35,7 @@
         </div>
         <div class="sidebar-divider"></div>
 
-        {% if show_my_servers or dynamic %}
+        {% if show_my_servers%}
             <a href="/my-servers/" class="sidebar-link"{% if dynamic %} id="my-servers-link" style="display: none;"{% endif %}>
                 <span class="sidebar-icon servers-icon"></span>
                 Мои серверы

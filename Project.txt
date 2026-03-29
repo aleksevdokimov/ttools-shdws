@@ -1,0 +1,530 @@
+=============================================================================
+ОПИСАНИЕ ФАЙЛОВ ПРОЕКТА TTOOLS SHADOWS (ПАПКА APP)
+=============================================================================
+
+Проект: TTools Shadows - веб-приложение для управления серверамиTravian
+Версия: 1.0.0
+Автор: Яковенко Алексей
+Технологии: FastAPI, SQLAlchemy 2, SQLite, Jinja2, Pydantic
+
+=============================================================================
+КОРНЕВЫЕ ФАЙЛЫ ПРИЛОЖЕНИЯ
+=============================================================================
+
+----------------------------------------------------------------------------
+app/__init__.py
+----------------------------------------------------------------------------
+Расположение: app/__init__.py
+Смысловая нагрузка: Пустой файл-маркер Python-пакета.
+Внутренние импорты: Нет
+Описание процедур: Нет (пустой файл)
+
+
+----------------------------------------------------------------------------
+app/config.py
+----------------------------------------------------------------------------
+Расположение: app/config.py
+Смысловая нагрузка: Конфигурация приложения через Pydantic Settings.
+                 Управление параметрами через переменные окружения (.env).
+                 Архитектурно - центральный конфиг для всего приложения.
+Внутренние импорты: os, typing.Union, pydantic.field_validator, 
+                   pydantic_settings.BaseSettings, SettingsConfigDict
+Процедуры:
+- Settings: Класс настроек с полями (DB_URL, SECRET_KEY, ALGORITHM, 
+  SITE_NAME, DEBUG, SCHEDULER_ENABLED, SCHEDULER_UPDATE_INTERVAL_HOURS)
+- parse_debug(): Валидатор для преобразования строки в bool
+
+
+----------------------------------------------------------------------------
+app/exceptions.py
+----------------------------------------------------------------------------
+Расположение: app/exceptions.py
+Смысловая нагрузка: Определение кастомных HTTP-исключений для приложения.
+                 Архитектурно - централизованное хранилище ошибок API.
+Внутренние импорты: fastapi.status, fastapi.HTTPException
+Процедуры:
+- UserAlreadyExistsException: Пользователь уже существует (409)
+- ServerAlreadyExistsException: Сервер уже существует (409)
+- ServerUrlAlreadyExistsException: URL сервера уже существует (409)
+- UserNotFoundException: Пользователь не найден (404)
+- UserIdNotFoundException: Отсутствует ID пользователя (404)
+- IncorrectEmailOrPasswordException: Неверный логин/пароль (400)
+- TokenExpiredException: Токен истек (401)
+- InvalidTokenFormatException: Некорректный формат токена (400)
+- TokenNoFound: Токен отсутствует в заголовке (401)
+- NoJwtException: Невалидный JWT токен (401)
+- NoUserIdException: Не найден ID пользователя (404)
+- ForbiddenException: Недостаточно прав (403)
+- ServerNotFoundException: Сервер не найден (404)
+- UserServerNotFoundException: Сервер не добавлен пользователю (404)
+
+
+----------------------------------------------------------------------------
+app/limiter.py
+----------------------------------------------------------------------------
+Расположение: app/limiter.py
+Смысловая нагрузка: Rate limiter для защиты от DDOS-атак.
+                 Использует IP-адрес клиента для ограничения запросов.
+Внутренние импорты: slowapi.Limiter, slowapi.util.get_remote_address
+Процедуры:
+- limiter: Объект Limiter для ограничения частоты запросов
+
+
+----------------------------------------------------------------------------
+app/main.py
+----------------------------------------------------------------------------
+Расположение: app/main.py
+Смысловая нагрузка: Главный файл приложения FastAPI. Создание и конфигурация
+                 приложения, регистрация роутеров, настройка CORS, lifespan.
+                 Архитектурно - точка входа в приложение.
+Внутренние импорты: os, contextlib.asynccontextmanager, fastapi, slowapi,
+                   loguru, app.auth.router, app.views.router, app.game.router,
+                   app.map.router, app.limiter, app.config.settings
+Процедуры:
+- lifespan(): Контекстный менеджер для управления жизненным циклом
+              (запуск/остановка scheduler)
+- create_app(): Создание и настройка FastAPI приложения
+- register_routers(): Регистрация всех роутеров приложения
+
+
+=============================================================================
+ПАПКА APP/AUTH (Аутентификация и авторизация)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/auth/__init__.py (маркер пакета - пустой)
+----------------------------------------------------------------------------
+
+
+----------------------------------------------------------------------------
+app/auth/enums.py
+----------------------------------------------------------------------------
+Расположение: app/auth/enums.py
+Смысловая нагрузка: Перечисление ролей пользователей системы.
+Внутренние импорты: enum.IntEnum
+Процедуры:
+- Role: Класс-перечисление (USER=1, MODERATOR=2, ADMIN=4)
+- get_name(): Получить название роли по ID
+- is_admin(): Проверить является ли роль администратором
+- is_moderator(): Проверить является ли роль модератором
+
+
+----------------------------------------------------------------------------
+app/auth/models.py
+----------------------------------------------------------------------------
+Расположение: app/auth/models.py
+Смысловая нагрузка: SQLAlchemy модели для пользователей, ролей и токенов.
+                 Архитектурно - слой данных для auth модуля.
+Внутренние импорты: datetime, sqlalchemy, app.dao.database (Base, str_uniq),
+                   app.game.models (UserSettings, UserServer, Player)
+Процедуры:
+- Role: Модель роли (id, name, users)
+- User: Модель пользователя (id, username, email, deleted_at, role_id, 
+        password_hash, info, is_active, role, settings, user_servers, 
+        players, registration_token)
+- RegistrationToken: Модель токена регистрации (token, used_by_user_id, 
+                     used_at, expires_at, comment, created_at)
+
+
+----------------------------------------------------------------------------
+app/auth/dao.py
+----------------------------------------------------------------------------
+Расположение: app/auth/dao.py
+Смысловая нагрузка: DAO (Data Access Object) для работы с пользователями и ролями.
+                 Архитектурно - слой доступа к данным auth.
+Внутренние импорты: secrets, datetime, typing.Tuple, app.dao.base.BaseDAO,
+                   app.auth.models (User, Role, RegistrationToken)
+Процедуры:
+- UsersDAO: Класс для работы с пользователями
+  - find_paginated_with_filters(): Пагинированный поиск с фильтрами
+  - soft_delete(): Мягкое удаление пользователя (deleted_at)
+  - restore(): Восстановление пользователя
+- RoleDAO: Класс для работы с ролями
+
+
+----------------------------------------------------------------------------
+app/auth/schemas.py
+----------------------------------------------------------------------------
+Расположение: app/auth/schemas.py
+Смысловая нагрузка: Pydantic схемы для валидации данных пользователей.
+                 Архитектурно - слой валидации данных auth.
+Внутренние импорты: re, datetime, typing, pydantic (BaseModel, ConfigDict,
+                   EmailStr, Field, field_validator, model_validator, computed_field)
+Процедуры:
+- EmailModel, UsernameModel: Базовые модели
+- SUserRegister: Схема регистрации (username, email, password, confirm_password, token)
+- SUserAddDB: Схема для добавления в БД
+- SUserAuth: Схема аутентификации
+- RoleModel: Схема роли
+- SUserInfo: Информация о пользователе (включая selected_server_id, player_name)
+- SUserUpdate, SUserCreate: Схемы обновления/создания
+- SPasswordReset: Сброс пароля
+- SUserListResponse: Ответ со списком пользователей
+
+
+----------------------------------------------------------------------------
+app/auth/utils.py
+----------------------------------------------------------------------------
+Расположение: app/auth/utils.py
+Смысловая нагрузка: Утилиты для работы с паролями и JWT токенами.
+Внутренние импорты: passlib.context.CryptContext, jose.jwt, datetime,
+                   fastapi.responses.Response, app.config.settings
+Процедуры:
+- create_tokens(): Создание access и refresh токенов (30 мин / 7 дней)
+- authenticate_user(): Аутентификация пользователя по паролю
+- set_tokens(): Установка токенов в cookies ответа
+- get_password_hash(): Хеширование пароля (bcrypt)
+- verify_password(): Проверка пароля
+
+
+----------------------------------------------------------------------------
+app/auth/router.py
+----------------------------------------------------------------------------
+Расположение: app/auth/router.py
+Смысловая нагрузка: API роутер для аутентификации и авторизации.
+                 Архитектурно - API endpoints для auth модуля.
+Внутренние импорты: fastapi, sqlalchemy.ext.asyncio, app.auth (models, utils, 
+                   dao, schemas, enums), app.limiter, app.dependencies, 
+                   app.exceptions, app.game.dao
+Процедуры:
+- _user_to_suserinfo(): Конвертация User в SUserInfo с данными сервера
+- register_user(): Регистрация пользователя с токеном
+- login_user(): Вход пользователя (установка cookies)
+- logout_user(): Выход (удаление cookies)
+- refresh_token(): Обновление токенов
+- get_me(): Получение текущего пользователя
+- generate_keys(), delete_key(), get_keys(), get_my_keys(): Управление API ключами
+
+
+=============================================================================
+ПАПКА APP/DAO (Слой доступа к данным)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/dao/__init__.py (маркер пакета - пустой)
+----------------------------------------------------------------------------
+
+
+----------------------------------------------------------------------------
+app/dao/database.py
+----------------------------------------------------------------------------
+Расположение: app/dao/database.py
+Смысловая нагрузка: Конфигурация базы данных SQLAlchemy.
+                 Архитектурно - основа для всех моделей и сессий.
+Внутренние импорты: uuid, datetime, decimal, typing, sqlalchemy,
+                   sqlalchemy.orm, sqlalchemy.ext.asyncio, app.config.database_url
+Процедуры:
+- engine: Асинхронный движок SQLite
+- async_session_maker: Фабрика асинхронных сессий
+- str_uniq: Тип для уникальных строковых полей
+- Base: Базовый класс для всех моделей (id, created_at, updated_at,
+        to_dict(), __tablename__)
+- __tablename__(): Автоматическое именование таблиц
+
+
+----------------------------------------------------------------------------
+app/dao/base.py
+----------------------------------------------------------------------------
+Расположение: app/dao/base.py
+Смысловая нагрузка: Базовый класс DAO с типовыми операциями CRUD.
+                 Архитектурно - универсальный слой доступа к данным.
+Внутренние импорты: typing, pydantic, sqlalchemy, loguru, 
+                   sqlalchemy.ext.asyncio, app.dao.database.Base
+Процедуры:
+- BaseDAO: Универсальный класс для CRUD операций
+  - find_one_or_none_by_id(): Поиск по ID
+  - find_one_or_none(): Поиск одной записи по фильтрам
+  - find_all(): Поиск всех записей
+  - add(): Добавление одной записи
+  - add_many(): Добавление нескольких записей
+  - update(): Обновление записей
+  - delete(): Удаление записей
+  - find_paginated(): Пагинированный поиск
+  - count_with_filters(): Подсчет с фильтрами
+
+
+=============================================================================
+ПАПКА APP/DEPENDENCIES (Зависимости FastAPI)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/dependencies/__init__.py (маркер пакета - пустой)
+----------------------------------------------------------------------------
+
+
+----------------------------------------------------------------------------
+app/dependencies/auth_dep.py
+----------------------------------------------------------------------------
+Расположение: app/dependencies/auth_dep.py
+Смысловая нагрузка: Зависимости для аутентификации и авторизации.
+                 Архитектурно - middleware для проверки прав доступа.
+Внутренние импорты: datetime, fastapi, jose, sqlalchemy.ext.asyncio,
+                   app.auth.dao, app.auth.models, app.auth.enums, 
+                   app.config, app.dependencies.dao_dep, app.exceptions
+Процедуры:
+- get_access_token(): Извлечение access_token из cookies
+- get_refresh_token(): Извлечение refresh_token из cookies
+- check_refresh_token(): Проверка refresh_token и возврат пользователя
+- get_current_user(): Проверка access_token и возврат пользователя
+- get_current_moderator_user(): Проверка прав модератора
+- get_current_admin_user(): Проверка прав администратора
+
+
+----------------------------------------------------------------------------
+app/dependencies/dao_dep.py
+----------------------------------------------------------------------------
+Расположение: app/dependencies/dao_dep.py
+Смысловая нагрузка: Зависимости для получения сессии БД.
+Внутренние импорты: typing, sqlalchemy.ext.asyncio, app.dao.database.async_session_maker
+Процедуры:
+- get_session_with_commit(): Сессия с автоматическим коммитом
+- get_session_without_commit(): Сессия без автоматического коммита
+
+
+=============================================================================
+ПАПКА APP/GAME (Игровые данные)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/game/__init__.py
+----------------------------------------------------------------------------
+Расположение: app/game/__init__.py
+Смысловая нагрузка: Экспорт игровых моделей.
+Внутренние импорты: app.game.models
+Процедуры:
+- Экспорт: UserSettings, Server, UserServer, Race, Alliance, Player, 
+           Village, ApiKey, Attack
+
+
+----------------------------------------------------------------------------
+app/game/models.py
+----------------------------------------------------------------------------
+Расположение: app/game/models.py
+Смысловая нагрузка: SQLAlchemy модели для игровых данных (серверы, игроки,
+                 деревни, альянсы, атаки, карты).
+                 Архитектурно - слой данных для game модуля.
+Внутренние импорты: datetime, typing, sqlalchemy, sqlalchemy.orm, 
+                   app.dao.database.Base
+Процедуры:
+- UserSettings: Настройки пользователя (user_id, settings JSON)
+- Server: Игровые серверы (name, url, info, settings, timezone, is_active,
+          is_updating, last_update_*, map_updates, maps, map_features)
+- UserServer: Связь пользователей с серверами (user_id, server_id, is_active)
+- Race: Расы ( Gaul, Roman, Teutons, Egyptians, Huns, Natars, Vulcans)
+- Alliance: Альянсы (server_id, alliance_id, tag, name, info)
+- Player: Игроки (server_id, player_id, name, tribe, alliance_id, villages)
+- Village: Деревни (server_id, village_id, name, x, y, player_id, population)
+- ApiKey: API ключи (user_id, key, name, server_id, created_at, expires_at)
+- Attack: Атаки (server_id, source_village_id, target_village_id, type, arrival_time)
+- MapUpdate: Обновления карты (server_id, started_at, finished_at, status, tiles_count)
+- MapCell: Ячейки карты (server_id, x, y, type_id, oasis_type, village_id, player_id)
+- MapFeature: Особенности карты (server_id, x, y, feature_type, description)
+- TypeField: Типы полей карты
+
+
+----------------------------------------------------------------------------
+app/game/dao.py
+----------------------------------------------------------------------------
+Расположение: app/game/dao.py
+Смысловая нагрузка: DAO для работы с игровыми данными.
+                 Архитектурно - слой доступа к данным game модуля.
+Внутренние импорты: datetime, typing.Tuple, sqlalchemy, app.dao.base.BaseDAO,
+                   app.game.models, app.game.schemas
+Процедуры:
+- ServerDAO: Работа с серверами
+  - find_paginated_with_filters(): Пагинированный поиск с фильтрами
+- UserServerDAO: Работа со связями пользователь-сервер
+- PlayerDAO: Работа с игроками
+- MapDAO: Работа с картой
+- RaceDAO, AllianceDAO, VillageDAO, ApiKeyDAO, MapUpdateDAO: CRUD операции
+
+
+----------------------------------------------------------------------------
+app/game/schemas.py
+----------------------------------------------------------------------------
+Расположение: app/game/schemas.py
+Смысловая нагрузка: Pydantic схемы для валидации игровых данных.
+                 Архитектурно - слой валидации game модуля.
+Внутренние импорты: datetime, typing, pydantic
+Процедуры:
+- ServerCreate, ServerUpdate, ServerResponse
+- RaceCreate, RaceUpdate, RaceResponse
+- AllianceCreate, AllianceUpdate, AllianceResponse
+- PlayerCreate, PlayerUpdate, PlayerResponse
+- VillageCreate, VillageUpdate, VillageResponse
+- ApiKeyCreate, ApiKeyResponse
+- AttackCreate, AttackResponse
+- MapUpdateRequest, MapUpdateResponse
+- MapCellFilterRequest, MapCellSearchResponse
+- MapAreaResponse
+- Tile, TilesBatch, TilesUploadResponse
+
+
+----------------------------------------------------------------------------
+app/game/router.py
+----------------------------------------------------------------------------
+Расположение: app/game/router.py
+Смысловая нагрузка: API роутер для игровых данных и управления серверами.
+                 Архитектурно - API endpoints для game модуля.
+Внутренние импорты: fastapi, sqlalchemy.ext.asyncio, pydantic, app.auth, 
+                   app.dependencies, app.game.dao, app.game.models, 
+                   app.game.schemas, app.exceptions, app.services
+Процедуры:
+- get_servers(): Получение списка серверов (пагинация, фильтры)
+- create_server(), update_server(), delete_server(): CRUD серверов
+- get_my_servers(): Серверы текущего пользователя
+- add_server_to_user(), set_active_server(): Управление связями
+- update_map(): Обновление карты сервера
+- update_all_maps(): Обновление карт всех серверов
+- search_map(): Поиск по карте
+- get_players(), get_player(), get_player_villages(): Работа с игроками
+- get_alliances(), get_alliance(): Работа с альянсами
+- get_villages(), get_village(): Работа с деревнями
+- generate_api_key(), delete_api_key(): Управление API ключами
+
+
+=============================================================================
+ПАПКА APP/MAP (Загрузка карты)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/map/router.py
+----------------------------------------------------------------------------
+Расположение: app/map/router.py
+Смысловая нагрузка: API роутер для загрузки данных карты извне.
+                 Публичный API без аутентификации.
+Внутренние импорты: fastapi, app.game.schemas, app.services.map_upload
+Процедуры:
+- upload_tiles(): Загрузка тайлов карты (сохранение в JSON)
+
+
+=============================================================================
+ПАПКА APP/VIEWS (HTML страницы)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/views/__init__.py
+----------------------------------------------------------------------------
+Расположение: app/views/__init__.py
+Смысловая нагрузка: Маркер пакета для views
+Описание: Views package - роуты для рендеринга HTML страниц
+
+
+----------------------------------------------------------------------------
+app/views/router.py
+----------------------------------------------------------------------------
+Расположение: app/views/router.py
+Смысловая нагрузка: Роутер для рендеринга HTML страниц через Jinja2.
+                 Архитектурно - представления для веб-интерфейса.
+Внутренние импорты: fastapi, fastapi.responses, fastapi.templating,
+                   app.config, app.auth.models, app.auth.dependencies,
+                   app.game.router, app.auth.enums
+Процедуры:
+- home_page(): Главная страница
+- login_page(), register_page(): Страницы аутентификации
+- users_page(): Страница списка пользователей (только админ)
+- servers_page(): Управление серверами (модератор+)
+- my_servers_page(): Мои серверы пользователя
+- create_server_page(), edit_server_page(): Создание/редактирование сервера
+- keys_page(): API ключи
+
+
+=============================================================================
+ПАПКА APP/SERVICES (Бизнес-логика)
+=============================================================================
+
+----------------------------------------------------------------------------
+app/services/__init__.py
+----------------------------------------------------------------------------
+Расположение: app/services/__init__.py
+Смысловая нагрузка: Маркер пакета Services
+Описание: Services package
+
+
+----------------------------------------------------------------------------
+app/services/scheduler.py
+----------------------------------------------------------------------------
+Расположение: app/services/scheduler.py
+Смысловая нагрузка: Планировщик для автоматических обновлений карты.
+                 Использует APScheduler для периодических задач.
+Внутренние импорты: os, typing, datetime, apscheduler, loguru, sqlalchemy,
+                   app.dao.database, app.game.models, app.services.map_update
+Процедуры:
+- MapUpdateScheduler: Класс планировщика
+  - start(): Запуск планировщика (ежечасные обновления)
+  - shutdown(): Остановка планировщика
+  - update_all_servers(): Обновление карт всех активных серверов
+
+
+----------------------------------------------------------------------------
+app/services/map_parser.py
+----------------------------------------------------------------------------
+Расположение: app/services/map_parser.py
+Смысловая нагрузка: Потоковый SQL-парсер для файлов Travian map.sql.
+                 Читает большие файлы построчно без загрузки в память.
+Внутренние импорты: re, asyncio, aiohttp, time, os, typing, datetime, loguru
+Процедуры:
+- MapParser: Класс парсера
+  - parse_url(): Загрузка и парсинг map.sql по URL
+  - parse_file(): Парсинг локального файла
+  - parse_stream(): Потоковый парсинг
+- download_and_save_map_file(): Загрузка с сохранением на диск
+
+
+----------------------------------------------------------------------------
+app/services/map_update.py
+----------------------------------------------------------------------------
+Расположение: app/services/map_update.py
+Смысловая нагрузка: Сервис обновления карты - синхронизация данных сервера.
+                 Загрузка map.sql, парсинг, обновление БД.
+Внутренние импорты: asyncio, time, datetime, typing, sqlalchemy, loguru,
+                   app.dao.database, app.game.models, app.services.map_parser,
+                   app.config
+Процедуры:
+- MapUpdateError, ConcurrentUpdateError: Исключения
+- MapUpdateService: Класс сервиса
+  - download_and_parse_map_file(): Загрузка и парсинг файла
+  - update_server_data(): Обновление данных сервера (альянсы, игроки, деревни)
+  - _acquire_lock(), _release_lock(): Управление блокировками
+
+
+----------------------------------------------------------------------------
+app/services/map_upload.py
+----------------------------------------------------------------------------
+Расположение: app/services/map_upload.py
+Смысловая нагрузка: Сервис для загрузки и сохранения данных карты из API.
+                 Сохранение в JSON и в БД.
+Внутренние импорты: os, json, datetime, pathlib, typing, loguru,
+                   app.config, app.game.schemas, app.game.models, 
+                   app.dao.database
+Процедуры:
+- MapUploadService: Класс сервиса
+  - _generate_filename(): Генерация имени файла
+  - _prepare_tile_data(): Подготовка данных тайла
+  - save_tiles(): Сохранение тайлов в JSON и БД
+
+
+=============================================================================
+АРХИТЕКТУРА ПРОЕКТА
+=============================================================================
+
+Многоуровневая архитектура:
+1. ROUTER (app/auth/router.py, app/game/router.py, app/views/router.py)
+   - API endpoints и представления
+
+2. SCHEMAS (app/auth/schemas.py, app/game/schemas.py)
+   - Валидация данных (Pydantic)
+
+3. DAO (app/auth/dao.py, app/game/dao.py, app/dao/base.py)
+   - Доступ к данным
+
+4. MODELS (app/auth/models.py, app/game/models.py)
+   - SQLAlchemy модели (слой БД)
+
+5. SERVICES (app/services/*)
+   - Бизнес-логика
+
+6. DEPENDENCIES (app/dependencies/*)
+   - FastAPI зависимости (аутентификация, сессии БД)
+
+=============================================================================

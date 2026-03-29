@@ -187,7 +187,7 @@ async def process_refresh_token(
     return {"message": "Токены успешно обновлены"}
 
 
-# Эндпоинты для управления пользователями (только для Суперадмина)
+# Эндпоинты для управления пользователями (только для админа)
 
 @router.get("/users/", response_model=SUserListResponse)
 async def get_users(
@@ -201,7 +201,7 @@ async def get_users(
 ) -> SUserListResponse:
     """
     Получение списка пользователей с пагинацией и фильтрацией.
-    Доступно только для Суперадмина (role_id = 4).
+    Доступно только для админа (role_id = 4).
     """
     # Преобразуем is_active из строки в bool
     is_active_bool = None
@@ -293,7 +293,7 @@ async def get_user(
 ) -> SUserInfo:
     """
     Получение пользователя по ID.
-    Доступно только для Суперадмина (role_id = 4).
+    Доступно только для админа (role_id = 4).
     """
     users_dao = UsersDAO(session)
     user = await users_dao.find_one_or_none_by_id(user_id)
@@ -311,7 +311,7 @@ async def update_user(
 ) -> SUserInfo:
     """
     Обновление пользователя.
-    Доступно только для Суперадмина (role_id = 4).
+    Доступно только для админа (role_id = 4).
     """
     users_dao = UsersDAO(session)
     
@@ -361,7 +361,7 @@ async def delete_user(
 ) -> dict:
     """
     Мягкое удаление пользователя.
-    Доступно только для Суперадмина (role_id = 4).
+    Доступно только для админа (role_id = 4).
     """
     users_dao = UsersDAO(session)
     
@@ -389,7 +389,7 @@ async def reset_password(
 ) -> dict:
     """
     Сброс пароля пользователя.
-    Доступно только для Суперадмина (role_id = 4).
+    Доступно только для админа (role_id = 4).
     """
     users_dao = UsersDAO(session)
     

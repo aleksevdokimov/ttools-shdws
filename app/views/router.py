@@ -3,37 +3,43 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
-from app.auth.models import User
-from app.dependencies.auth_dep import get_current_user, get_current_admin_user, get_current_superadmin_user
-from app.game.router import _check_admin_or_moderator
+from app.domain.permissions import Permission, UserContext
+from app.presentation.dependencies.permissions import (
+    get_ui_flags,
+    require_permission,
+    get_user_context,
+)
+from app.presentation.dependencies.game_dep import get_server  # ← Правильно!
 
-# Создаём роутер
 router = APIRouter()
-
-# Инициализируем Jinja2Templates
 templates = Jinja2Templates(directory="app/templates")
 
 
+# =============================================================================
+# Публичные страницы
+# =============================================================================
+
 @router.get("/", response_class=HTMLResponse)
-async def home_page(request: Request):
-    """
-    Главная страница. Доступна без авторизации.
-    """
+async def home_page(
+    request: Request,
+    user_context: UserContext | None = Depends(get_user_context),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Главная страница."""
     return templates.TemplateResponse(
         "home/index.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
-            "user": None,  # Будет загружено через JavaScript
+            "user": user_context,
+            **ui_flags,
         }
     )
 
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    """
-    Страница входа.
-    """
+    """Страница входа."""
     return templates.TemplateResponse(
         "auth/login.html",
         {
@@ -45,9 +51,7 @@ async def login_page(request: Request):
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    """
-    Страница регистрации.
-    """
+    """Страница регистрации."""
     return templates.TemplateResponse(
         "auth/register.html",
         {
@@ -57,131 +61,171 @@ async def register_page(request: Request):
     )
 
 
+# =============================================================================
+# Страницы управления пользователями
+# =============================================================================
+
 @router.get("/users/", response_class=HTMLResponse)
-async def users_page(request: Request, admin: User = Depends(get_current_superadmin_user)):
-    """
-    Страница списка пользователей. Требует авторизации и прав суперадмина.
-    """
+async def users_page(
+    request: Request,
+    user_context: UserContext = Depends(require_permission(Permission.USERS_VIEW)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница списка пользователей."""
     return templates.TemplateResponse(
         "users/list.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
 @router.get("/users/create", response_class=HTMLResponse)
-async def user_create_page(request: Request, admin: User = Depends(get_current_superadmin_user)):
-    """
-    Страница создания пользователя. Требует авторизации и прав суперадмина.
-    """
+async def user_create_page(
+    request: Request,
+    user_context: UserContext = Depends(require_permission(Permission.USERS_CREATE)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница создания пользователя."""
     return templates.TemplateResponse(
         "users/create.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
 @router.get("/users/{user_id}/edit", response_class=HTMLResponse)
-async def user_edit_page(request: Request, user_id: int, admin: User = Depends(get_current_superadmin_user)):
-    """
-    Страница редактирования пользователя. Требует авторизации и прав суперадмина.
-    """
+async def user_edit_page(
+    request: Request,
+    user_id: int,
+    user_context: UserContext = Depends(require_permission(Permission.USERS_EDIT)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница редактирования пользователя."""
     return templates.TemplateResponse(
         "users/edit.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
             "user_id": user_id,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
-# === Страницы серверов ===
+# =============================================================================
+# Страницы управления серверами
+# =============================================================================
 
 @router.get("/servers/", response_class=HTMLResponse)
-async def servers_page(request: Request, user: User = Depends(_check_admin_or_moderator)):
-    """
-    Страница списка серверов. Требует авторизации и прав админа или модератора.
-    """
+async def servers_page(
+    request: Request,
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_VIEW_ALL)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница списка серверов."""
     return templates.TemplateResponse(
         "servers/list.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
 @router.get("/servers/create", response_class=HTMLResponse)
-async def server_create_page(request: Request, user: User = Depends(_check_admin_or_moderator)):
-    """
-    Страница создания сервера. Требует авторизации и прав админа или модератора.
-    """
+async def server_create_page(
+    request: Request,
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница создания сервера."""
     return templates.TemplateResponse(
         "servers/create.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
 @router.get("/servers/{server_id}/edit", response_class=HTMLResponse)
-async def server_edit_page(request: Request, server_id: int, user: User = Depends(_check_admin_or_moderator)):
-    """
-    Страница редактирования сервера. Требует авторизации и прав админа или модератора.
-    """
+async def server_edit_page(
+    request: Request,
+    server_id: int,
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница редактирования сервера."""
     return templates.TemplateResponse(
         "servers/edit.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
             "server_id": server_id,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
-# === Страница "Мои серверы" ===
+# =============================================================================
+# Страница "Мои серверы"
+# =============================================================================
 
 @router.get("/my-servers/", response_class=HTMLResponse)
-async def my_servers_page(request: Request, user: User = Depends(get_current_user)):
-    """
-    Страница списка серверов пользователя. Требует авторизации.
-    """
+async def my_servers_page(
+    request: Request,
+    user_context: UserContext | None = Depends(get_user_context),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница списка серверов пользователя."""
+    if not user_context:
+        return RedirectResponse("/login", status_code=303)
+    
     return templates.TemplateResponse(
         "servers/my_servers.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
-# === Страницы просмотра игры ===
+# =============================================================================
+# Страницы просмотра игры (с использованием dependencies)
+# =============================================================================
 
 @router.get("/game/servers/{server_id}/alliances", response_class=HTMLResponse)
-async def alliances_page(request: Request, server_id: int, user: User = Depends(get_current_user)):
-    """
-    Страница списка альянсов сервера. Требует авторизации.
-    """
-    from app.game.dao import ServerDAO
-    from app.dao.database import async_session_maker
-    
-    async with async_session_maker() as session:
-        server_dao = ServerDAO(session)
-        server = await server_dao.find_one_or_none_by_id(server_id)
-        
+async def alliances_page(
+    request: Request,
+    server_id: int,
+    user_context: UserContext = Depends(require_permission(Permission.GAME_VIEW)),
+    server = Depends(get_server),  # ← Используем dependency!
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница списка альянсов сервера."""
     if not server:
         return RedirectResponse("/my-servers/")
     
@@ -190,26 +234,24 @@ async def alliances_page(request: Request, server_id: int, user: User = Depends(
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "server_id": server_id,
             "server_name": server.name,
             "server_url": server.url,
-            # "dynamic": True,
         }
     )
 
 
 @router.get("/game/servers/{server_id}/players", response_class=HTMLResponse)
-async def players_page(request: Request, server_id: int, user: User = Depends(get_current_user)):
-    """
-    Страница списка игроков сервера. Требует авторизации.
-    """
-    from app.game.dao import ServerDAO
-    from app.dao.database import async_session_maker
-    
-    async with async_session_maker() as session:
-        server_dao = ServerDAO(session)
-        server = await server_dao.find_one_or_none_by_id(server_id)
-        
+async def players_page(
+    request: Request,
+    server_id: int,
+    user_context: UserContext = Depends(require_permission(Permission.GAME_VIEW)),
+    server = Depends(get_server),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница списка игроков сервера."""
     if not server:
         return RedirectResponse("/my-servers/")
     
@@ -218,25 +260,23 @@ async def players_page(request: Request, server_id: int, user: User = Depends(ge
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "server_id": server_id,
             "server_name": server.name,
-            # "dynamic": True,
         }
     )
 
 
 @router.get("/game/servers/{server_id}/villages", response_class=HTMLResponse)
-async def villages_page(request: Request, server_id: int, user: User = Depends(get_current_user)):
-    """
-    Страница списка деревень сервера. Требует авторизации.
-    """
-    from app.game.dao import ServerDAO
-    from app.dao.database import async_session_maker
-    
-    async with async_session_maker() as session:
-        server_dao = ServerDAO(session)
-        server = await server_dao.find_one_or_none_by_id(server_id)
-        
+async def villages_page(
+    request: Request,
+    server_id: int,
+    user_context: UserContext = Depends(require_permission(Permission.GAME_VIEW)),
+    server = Depends(get_server),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница списка деревень сервера."""
     if not server:
         return RedirectResponse("/my-servers/")
     
@@ -245,25 +285,23 @@ async def villages_page(request: Request, server_id: int, user: User = Depends(g
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "server_id": server_id,
             "server_name": server.name,
-            # "dynamic": True,
         }
     )
 
 
 @router.get("/game/servers/{server_id}/map-search", response_class=HTMLResponse)
-async def map_search_page(request: Request, server_id: int, user: User = Depends(get_current_user)):
-    """
-    Страница поиска клеток карты сервера. Требует авторизации.
-    """
-    from app.game.dao import ServerDAO
-    from app.dao.database import async_session_maker
-
-    async with async_session_maker() as session:
-        server_dao = ServerDAO(session)
-        server = await server_dao.find_one_or_none_by_id(server_id)
-
+async def map_search_page(
+    request: Request,
+    server_id: int,
+    user_context: UserContext = Depends(require_permission(Permission.GAME_VIEW)),
+    server = Depends(get_server),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница поиска клеток карты сервера."""
     if not server:
         return RedirectResponse("/my-servers/")
 
@@ -272,32 +310,42 @@ async def map_search_page(request: Request, server_id: int, user: User = Depends
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "server_id": server_id,
             "server_name": server.name,
             "server_url": server.url,
-            # "dynamic": True,
         }
     )
 
 
+# =============================================================================
+# Страницы управления ключами
+# =============================================================================
+
 @router.get("/keys", response_class=HTMLResponse)
-async def keys_page(request: Request, admin: User = Depends(get_current_admin_user)):
-    """
-    Страница управления регистрационными ключами. Требует прав админа.
-    """
+async def keys_page(
+    request: Request,
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_VIEW)),
+    ui_flags: dict = Depends(get_ui_flags),
+):
+    """Страница управления регистрационными ключами."""
     return templates.TemplateResponse(
         "auth/keys.html",
         {
             "request": request,
             "site_name": settings.SITE_NAME,
+            "user": user_context,
+            **ui_flags,
             "dynamic": True,
         }
     )
 
 
 @router.get("/users/keys", response_class=HTMLResponse)
-async def users_keys_page(request: Request, admin: User = Depends(get_current_admin_user)):
-    """
-    Алиас для страницы ключей.
-    """
+async def users_keys_page(
+    request: Request,
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_VIEW)),
+):
+    """Алиас для страницы ключей."""
     return RedirectResponse("/keys")
