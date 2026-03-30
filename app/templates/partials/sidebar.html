@@ -18,6 +18,7 @@
 <aside class="sidebar">
     <nav class="sidebar-nav"> 
         
+        {% if show_servers or show_users%}
         <div class="sidebar-section-block">
             {% if show_servers%}
                 <a href="/servers/" class="sidebar-link"{% if dynamic %} id="servers-link" style="display: none;"{% endif %}>
@@ -34,6 +35,8 @@
             {% endif %}
         </div>
         <div class="sidebar-divider"></div>
+        {% endif %}
+
 
         {% if show_my_servers%}
             <a href="/my-servers/" class="sidebar-link"{% if dynamic %} id="my-servers-link" style="display: none;"{% endif %}>

@@ -5,7 +5,7 @@
 
 from app.auth.models import User
 from app.domain.permissions import Role, UserContext
-from app.auth.enums import Role as RoleEnum
+# from app.auth.enums import Role as RoleEnum
 
 
 class UserContextMapper:

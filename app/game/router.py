@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.auth.models import User
-from app.auth.enums import Role
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.game.dao import ServerDAO, UserServerDAO, PlayerDAO, MapDAO
@@ -17,6 +16,8 @@ from app.game.schemas import (
 from app.exceptions import UserNotFoundException, ServerAlreadyExistsException, ForbiddenException, ServerUrlAlreadyExistsException, ServerNotFoundException, UserServerNotFoundException
 from app.services.scheduler import scheduler
 from app.services.map_update import map_update_service
+from app.presentation.dependencies.permissions import require_permission, get_user_context
+from app.domain.permissions import Permission, UserContext
 
 
 router = APIRouter()
@@ -31,13 +32,6 @@ class ServerListResponse(BaseModel):
     pages: int
 
 
-async def _check_admin_or_moderator(user: User = Depends(get_current_user)) -> User:
-    """Проверяет права администратора или модератора."""
-    if not Role.is_moderator(user.role_id):
-        raise ForbiddenException
-    return user
-
-
 # Эндпоинты для управления серверами
 
 @router.get("/servers/", response_model=ServerListResponse)
@@ -48,7 +42,7 @@ async def get_servers(
     is_active: str | None = None,
     is_deleted: str | None = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(_check_admin_or_moderator)
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE))
 ) -> ServerListResponse:
     """
     Получение списка серверов с пагинацией и фильтрацией.
@@ -88,7 +82,7 @@ async def get_servers(
 async def create_server(
     server_data: ServerCreate,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(_check_admin_or_moderator)
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE))
 ) -> ServerResponse:
     """
     Создание нового сервера.
@@ -120,7 +114,7 @@ async def create_server(
 async def get_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(_check_admin_or_moderator)
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE))
 ) -> ServerResponse:
     """
     Получение сервера по ID.
@@ -138,7 +132,7 @@ async def update_server(
     server_id: int,
     server_data: ServerUpdate,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(_check_admin_or_moderator)
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE))
 ) -> ServerResponse:
     """
     Обновление сервера.
@@ -192,7 +186,7 @@ async def update_server(
 async def delete_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(_check_admin_or_moderator)
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_DELETE))
 ) -> dict:
     """
     Мягкое удаление сервера.
@@ -214,7 +208,7 @@ async def delete_server(
 async def restore_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(_check_admin_or_moderator)
+    user_context: UserContext = Depends(require_permission(Permission.SERVERS_MANAGE))
 ) -> dict:
     """
     Восстановление удалённого сервера.
@@ -257,7 +251,7 @@ class ActiveServerResponse(BaseModel):
 @router.get("/servers/active/", response_model=List[ActiveServerResponse])
 async def get_active_servers(
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> List[ActiveServerResponse]:
     """
     Получение списка активных серверов для добавления пользователем.
@@ -277,7 +271,7 @@ async def get_active_servers(
     servers = result.scalars().all()
     
     # Получаем серверы пользователя
-    user_servers = await user_server_dao.find_by_user(user.id)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
     user_server_ids = {us.server_id for us in user_servers}
     
     # Фильтруем только те, которые ещё не добавлены
@@ -297,7 +291,7 @@ async def get_active_servers(
 @router.get("/user-servers/", response_model=List[UserServerWithDetails])
 async def get_user_servers(
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> List[UserServerWithDetails]:
     """
     Получение списка серверов текущего пользователя.
@@ -308,7 +302,7 @@ async def get_user_servers(
     player_dao = PlayerDAO(session)
     
     # Получаем серверы пользователя
-    user_servers = await user_server_dao.find_by_user(user.id)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
     
     result = []
     for us in user_servers:
@@ -318,7 +312,7 @@ async def get_user_servers(
             continue
         
         # Получаем игрока
-        player = await player_dao.find_by_user_and_server(user.id, us.server_id)
+        player = await player_dao.find_by_user_and_server(user_context.user_id, us.server_id)
         
         result.append(UserServerWithDetails(
             id=us.id,
@@ -338,7 +332,7 @@ async def get_user_servers(
 async def add_user_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> UserServerWithDetails:
     """
     Добавить сервер в список пользователя.
@@ -355,11 +349,11 @@ async def add_user_server(
         raise ForbiddenException("Сервер неактивен")
     
     # Добавляем сервер
-    user_server = await user_server_dao.add_user_server(user.id, server_id)
+    user_server = await user_server_dao.add_user_server(user_context.user_id, server_id)
     
     # Получаем игрока
     player_dao = PlayerDAO(session)
-    player = await player_dao.find_by_user_and_server(user.id, server_id)
+    player = await player_dao.find_by_user_and_server(user_context.user_id, server_id)
     
     return UserServerWithDetails(
         id=user_server.id,
@@ -377,7 +371,7 @@ async def add_user_server(
 async def select_user_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> dict:
     """
     Выбрать сервер как активный для пользователя.
@@ -386,14 +380,14 @@ async def select_user_server(
     user_server_dao = UserServerDAO(session)
     
     # Проверяем, что сервер есть у пользователя
-    user_servers = await user_server_dao.find_by_user(user.id)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
     user_server_ids = {us.server_id for us in user_servers}
     
     if server_id not in user_server_ids:
         raise UserServerNotFoundException("Сервер не добавлен в ваш список")
     
     # Устанавливаем активный
-    await user_server_dao.set_active(user.id, server_id)
+    await user_server_dao.set_active(user_context.user_id, server_id)
     
     return {"message": "Сервер выбран"}
 
@@ -402,7 +396,7 @@ async def select_user_server(
 async def deselect_user_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> dict:
     """
     Снять активность с сервера для пользователя.
@@ -411,14 +405,14 @@ async def deselect_user_server(
     user_server_dao = UserServerDAO(session)
 
     # Проверяем, что сервер есть у пользователя
-    user_servers = await user_server_dao.find_by_user(user.id)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
     user_server_ids = {us.server_id for us in user_servers}
 
     if server_id not in user_server_ids:
         raise UserServerNotFoundException("Сервер не добавлен в ваш список")
 
     # Снимаем активность
-    await user_server_dao.unset_active(user.id, server_id)
+    await user_server_dao.unset_active(user_context.user_id, server_id)
 
     return {"message": "Сервер откреплён"}
 
@@ -427,7 +421,7 @@ async def deselect_user_server(
 async def remove_user_server(
     server_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> dict:
     """
     Удалить сервер из списка пользователя.
@@ -436,14 +430,14 @@ async def remove_user_server(
     user_server_dao = UserServerDAO(session)
     
     # Проверяем, что сервер есть у пользователя
-    user_servers = await user_server_dao.find_by_user(user.id)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
     user_server_ids = {us.server_id for us in user_servers}
     
     if server_id not in user_server_ids:
         raise UserServerNotFoundException("Сервер не добавлен в ваш список")
     
     # Удаляем
-    await user_server_dao.remove_user_server(user.id, server_id)
+    await user_server_dao.remove_user_server(user_context.user_id, server_id)
     
     return {"message": "Сервер удалён из списка"}
 
@@ -455,7 +449,7 @@ async def remove_user_server(
 async def update_server_map(
     server_id: int,
     request: MapUpdateRequest = None,
-    user: User = Depends(get_current_user),
+    user_context: UserContext = Depends(get_user_context),
     session: AsyncSession = Depends(get_session_with_commit)
 ) -> ServerUpdateResponse:
     """
@@ -486,7 +480,7 @@ async def update_server_map(
 
 @router.post("/servers/update-all", response_model=UpdateAllResponse)
 async def update_all_servers(
-    user: User = Depends(get_current_user),
+    user_context: UserContext = Depends(get_user_context),
     session: AsyncSession = Depends(get_session_with_commit)
 ) -> UpdateAllResponse:
     """
@@ -516,7 +510,7 @@ async def search_map_cells(
     page: int = 1,
     per_page: int = 20,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> MapCellSearchResponse:
     """
     Поиск клеток карты с фильтрами.
@@ -572,7 +566,7 @@ async def get_map_area(
     x: int,
     y: int,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> MapAreaResponse:
     """
     Получить область карты 21x21 вокруг указанной клетки.
@@ -642,7 +636,7 @@ async def get_map_area(
 async def get_server_update_status(
     server_id: int,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> MapUpdateResponse:
     """
     Получить статус последнего обновления карты для сервера.
@@ -710,7 +704,7 @@ async def get_server_alliances(
     per_page: int = 20,
     tag: str = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> AllianceListResponse:
     """
     Получить список альянсов сервера с пагинацией и фильтрацией.
@@ -769,7 +763,7 @@ async def get_server_players(
     name: str = None,
     alliance: str = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> PlayerListResponse:
     """
     Получить список игроков сервера с пагинацией и фильтрацией.
@@ -841,7 +835,7 @@ async def get_server_villages(
     name: str = None,
     player: str = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    user: User = Depends(get_current_user)
+    user_context: UserContext = Depends(get_user_context)
 ) -> VillageListResponse:
     """
     Получить список деревень сервера с пагинацией и фильтрацией.

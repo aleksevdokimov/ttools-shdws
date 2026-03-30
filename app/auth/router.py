@@ -16,6 +16,8 @@ from app.auth.schemas import (
     SRegistrationTokenCreate, SRegistrationToken, SRegistrationTokenUpdate, SRegistrationTokenListResponse,
     SGenerateKeysRequest
 )
+from app.presentation.dependencies.permissions import require_permission
+from app.domain.permissions import Permission, UserContext
 
 router = APIRouter()
 
@@ -153,7 +155,7 @@ async def get_all_users(
     page: int = 1,
     per_page: int = 10,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_VIEW))
 ) -> SUserListResponse:
     """
     Получение списка всех пользователей с пагинацией.
@@ -197,7 +199,7 @@ async def get_users(
     email: str | None = None,
     is_active: str | None = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_VIEW))
 ) -> SUserListResponse:
     """
     Получение списка пользователей с пагинацией и фильтрацией.
@@ -232,7 +234,7 @@ async def get_users(
 async def create_user(
     user_data: SUserCreate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_CREATE))
 ) -> SUserInfo:
     """
     Создание нового пользователя.
@@ -289,7 +291,7 @@ async def create_user(
 async def get_user(
     user_id: int,
     session: AsyncSession = Depends(get_session_without_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_VIEW))
 ) -> SUserInfo:
     """
     Получение пользователя по ID.
@@ -307,7 +309,7 @@ async def update_user(
     user_id: int,
     user_data: SUserUpdate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_EDIT))
 ) -> SUserInfo:
     """
     Обновление пользователя.
@@ -357,7 +359,7 @@ async def update_user(
 async def delete_user(
     user_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_DELETE))
 ) -> dict:
     """
     Мягкое удаление пользователя.
@@ -385,7 +387,7 @@ async def reset_password(
     user_id: int,
     password_data: SPasswordReset,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_admin_user)
+    user_context: UserContext = Depends(require_permission(Permission.USERS_EDIT))
 ) -> dict:
     """
     Сброс пароля пользователя.
@@ -421,7 +423,7 @@ async def get_keys(
     token: str | None = None,
     used: bool | None = None,
     session: AsyncSession = Depends(get_session_without_commit),
-    admin: User = Depends(get_current_moderator_user)
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_VIEW))
 ) -> SRegistrationTokenListResponse:
     """
     Получение списка регистрационных токенов с пагинацией и фильтрами.
@@ -441,7 +443,7 @@ async def get_keys(
 async def create_key(
     key_data: SRegistrationTokenCreate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_moderator_user)
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_CREATE))
 ) -> SRegistrationToken:
     """
     Создание нового регистрационного токена.
@@ -457,7 +459,7 @@ async def update_key(
     key_id: int,
     key_data: SRegistrationTokenUpdate,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_moderator_user)
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_CREATE))
 ) -> SRegistrationToken:
     """
     Обновление регистрационного токена.
@@ -484,7 +486,7 @@ async def update_key(
 async def delete_key(
     key_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_moderator_user)
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_DELETE))
 ) -> dict:
     """
     Удаление регистрационного токена.
@@ -503,7 +505,7 @@ async def delete_key(
 async def generate_keys(
     request: SGenerateKeysRequest,
     session: AsyncSession = Depends(get_session_with_commit),
-    admin: User = Depends(get_current_moderator_user)
+    user_context: UserContext = Depends(require_permission(Permission.KEYS_CREATE))
 ) -> dict:
     """
     Генерация указанного количества регистрационных токенов.

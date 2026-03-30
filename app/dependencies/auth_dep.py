@@ -5,12 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dao import UsersDAO
 from app.auth.models import User
-from app.auth.enums import Role
+# from app.auth.enums import Role
 from app.config import settings
 from app.dependencies.dao_dep import get_session_without_commit
 from app.exceptions import (
     TokenNoFound, NoJwtException, TokenExpiredException, NoUserIdException, ForbiddenException, UserNotFoundException
 )
+from app.infrastructure.permissions.mapper import UserContextMapper
 
 
 def get_access_token(request: Request) -> str:
@@ -84,13 +85,17 @@ async def get_current_user(
 
 async def get_current_moderator_user(current_user: User = Depends(get_current_user)) -> User:
     """Проверяем права пользователя как модератора"""
-    if Role.is_moderator(current_user.role_id):
+    user_context = UserContextMapper.from_orm(current_user)
+    
+    if user_context.is_moderator:
         return current_user
     raise ForbiddenException
 
 
 async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """Проверяем права пользователя как администратора"""
-    if Role.is_admin(current_user.role_id):
+    user_context = UserContextMapper.from_orm(current_user)
+    
+    if user_context.is_admin:
         return current_user
     raise ForbiddenException

@@ -10,6 +10,7 @@ from app.presentation.dependencies.permissions import (
     get_user_context,
 )
 from app.presentation.dependencies.game_dep import get_server  # ← Правильно!
+from app.domain.permissions import Permission, UserContext
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
