@@ -1,17 +1,20 @@
-from typing import List
-from fastapi import APIRouter, Depends
+from typing import List, Dict, Any, Optional
+from loguru import logger
+from fastapi import APIRouter, Depends, Header, Request
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth.models import User
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
-from app.game.dao import ServerDAO, UserServerDAO, PlayerDAO, MapDAO
+from app.game.dao import ServerDAO, UserServerDAO, PlayerDAO, MapDAO, ApiKeyDAO
 from app.game.models import Server
 from app.game.schemas import (
     ServerCreate, ServerUpdate, ServerResponse, UserServerResponse,
     MapUpdateResponse, MapUpdateRequest, ServerUpdateResponse, UpdateAllResponse,
-    MapCellFilterRequest, MapCellSearchResponse, MapAreaResponse
+    MapCellFilterRequest, MapCellSearchResponse, MapAreaResponse,
+    PlayerVerificationStatusResponse, PlayerSelectRequest, PlayerVerificationUpdate
 )
 from app.exceptions import UserNotFoundException, ServerAlreadyExistsException, ForbiddenException, ServerUrlAlreadyExistsException, ServerNotFoundException, UserServerNotFoundException
 from app.services.scheduler import scheduler
@@ -238,6 +241,8 @@ class UserServerWithDetails(BaseModel):
     is_active: bool
     player_name: str | None = None
     player_verified: bool = False
+    player_id: int | None = None
+    verification_code: str | None = None
 
 
 class ActiveServerResponse(BaseModel):
@@ -297,9 +302,12 @@ async def get_user_servers(
     Получение списка серверов текущего пользователя.
     Доступно для всех авторизованных пользователей.
     """
+    from app.game.dao import PlayerVerificationDAO
+    
     user_server_dao = UserServerDAO(session)
     server_dao = ServerDAO(session)
     player_dao = PlayerDAO(session)
+    verification_dao = PlayerVerificationDAO(session)
     
     # Получаем серверы пользователя
     user_servers = await user_server_dao.find_by_user(user_context.user_id)
@@ -314,6 +322,17 @@ async def get_user_servers(
         # Получаем игрока
         player = await player_dao.find_by_user_and_server(user_context.user_id, us.server_id)
         
+        # Получаем код подтверждения если есть
+        verification_code = None
+        player_id = None
+        if player:
+            player_id = player.id
+            verification = await verification_dao.find_by_user_and_player(
+                user_context.user_id, player.id, us.server_id
+            )
+            if verification and not verification.is_verified:
+                verification_code = verification.verification_code
+        
         result.append(UserServerWithDetails(
             id=us.id,
             server_id=us.server_id,
@@ -322,7 +341,9 @@ async def get_user_servers(
             server_speed=server.settings.get("speed", "x1") if server.settings else "x1",
             is_active=us.is_active,
             player_name=player.name if player else None,
-            player_verified=player.is_verified if player else False
+            player_verified=player.is_verified if player else False,
+            player_id=player_id,
+            verification_code=verification_code
         ))
     
     return result
@@ -438,8 +459,355 @@ async def remove_user_server(
     
     # Удаляем
     await user_server_dao.remove_user_server(user_context.user_id, server_id)
+
+
+# === Эндпоинты для работы с игроками и подтверждением ===
+
+class PlayerAttachRequest(BaseModel):
+    """Схема запроса привязки игрока."""
+    player_name: str = Field(..., min_length=1, max_length=255, description="Имя игрока")
+
+
+class PlayerDetachResponse(BaseModel):
+    """Схема ответа отвязки игрока."""
+    success: bool
+    message: str
+
+
+class BrowserVerificationRequest(BaseModel):
+    """Схема запроса от расширения браузера."""
+    verification_code: str = Field(..., min_length=4, max_length=10, description="Код подтверждения")
+    player_account_id: int = Field(..., description="ID игрока из игры (account_id)")
+    server_url: str = Field(..., description="URL сервера")
+
+
+class BrowserVerificationResponse(BaseModel):
+    """Схема ответа для расширения браузера."""
+    success: bool
+    message: str
+    player_verified: bool = False
+    api_key: str | None = None
+    is_verified: bool = False
+
+
+@router.post("/servers/{server_id}/players/attach")
+async def attach_player_by_name(
+    server_id: int,
+    request: PlayerAttachRequest,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user_context: UserContext = Depends(get_user_context)
+):
+    """
+    Привязать игрока по имени и получить код подтверждения.
+    """
+    from app.game.dao import UserServerDAO, PlayerDAO, PlayerVerificationDAO
+    from app.utils.code_generator import generate_verification_code
+    from sqlalchemy import select
     
-    return {"message": "Сервер удалён из списка"}
+    # Проверяем, что сервер есть у пользователя
+    user_server_dao = UserServerDAO(session)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
+    if server_id not in [us.server_id for us in user_servers]:
+        raise ForbiddenException("Сервер не добавлен в ваш список")
+    
+    # Ищем игрока по имени на сервере
+    player_dao = PlayerDAO(session)
+    stmt = select(player_dao.model).where(
+        player_dao.model.server_id == server_id,
+        player_dao.model.name == request.player_name
+    )
+    result = await session.execute(stmt)
+    player = result.scalar_one_or_none()
+    
+    if not player:
+        return {
+            "status": "not_found",
+            "message": f"Игрок '{request.player_name}' не найден на этом сервере"
+        }
+    
+    # Проверяем, не привязан ли уже этот игрок к другому пользователю
+    if player.user_id and player.user_id != user_context.user_id:
+        raise ForbiddenException("Этот игрок уже привязан к другому аккаунту")
+    
+    # Если игрок уже привязан к этому пользователю
+    if player.user_id == user_context.user_id:
+        verification_dao = PlayerVerificationDAO(session)
+        verification = await verification_dao.find_by_user_and_player(
+            user_context.user_id, player.id, server_id
+        )
+        
+        if verification and verification.is_verified:
+            return {
+                "status": "already_verified",
+                "player_id": player.id,
+                "player_name": player.name,
+                "player_account_id": player.account_id,
+                "is_verified": True,
+                "message": "Игрок уже подтверждён"
+            }
+        elif verification:
+            return {
+                "status": "pending",
+                "player_id": player.id,
+                "player_name": player.name,
+                "player_account_id": player.account_id,
+                "verification_code": verification.verification_code,
+                "is_verified": False,
+                "message": "Ожидает подтверждения"
+            }
+    
+    # Привязываем игрока к пользователю
+    player.user_id = user_context.user_id
+    await session.flush()
+    
+    # Генерируем код подтверждения
+    verification_code = generate_verification_code()
+    
+    # Создаём или обновляем запись подтверждения
+    verification_dao = PlayerVerificationDAO(session)
+    verification = await verification_dao.create_or_update(
+        user_id=user_context.user_id,
+        player_id=player.id,
+        server_id=server_id,
+        verification_code=verification_code
+    )
+    
+    return {
+        "status": "success",
+        "player_id": player.id,
+        "player_name": player.name,
+        "player_account_id": player.account_id,
+        "verification_code": verification.verification_code,
+        "is_verified": False,
+        "message": "Код подтверждения сгенерирован"
+    }
+
+
+@router.post("/servers/{server_id}/players/detach")
+async def detach_player(
+    server_id: int,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user_context: UserContext = Depends(get_user_context)
+) -> PlayerDetachResponse:
+    """
+    Отвязать игрока от пользователя.
+    """
+    from app.game.dao import UserServerDAO, PlayerDAO, PlayerVerificationDAO
+    
+    # Проверяем, что сервер есть у пользователя
+    user_server_dao = UserServerDAO(session)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
+    if server_id not in [us.server_id for us in user_servers]:
+        raise ForbiddenException("Сервер не добавлен в ваш список")
+    
+    # Находим игрока
+    player_dao = PlayerDAO(session)
+    player = await player_dao.find_by_user_and_server(user_context.user_id, server_id)
+    
+    if not player:
+        raise ForbiddenException("Игрок не привязан")
+    
+    # Удаляем подтверждение
+    verification_dao = PlayerVerificationDAO(session)
+    verification = await verification_dao.find_by_user_and_player(
+        user_context.user_id, player.id, server_id
+    )
+    if verification:
+        await verification_dao.delete_by_id(verification.id)
+
+    api_key_dao = ApiKeyDAO(session)
+    await api_key_dao.deactivate_all_for_player(player.id, server_id)
+    
+    # Сбрасываем связь
+    player.user_id = None
+    player.is_verified = False
+    await session.flush()
+    
+    return PlayerDetachResponse(
+        success=True,
+        message="Игрок отвязан"
+    )
+
+
+@router.get("/servers/{server_id}/players/status")
+async def get_player_verification_status(
+    server_id: int,
+    session: AsyncSession = Depends(get_session_without_commit),
+    user_context: UserContext = Depends(get_user_context)
+):
+    """
+    Получить статус подтверждения привязанного игрока.
+    """
+    from app.game.dao import UserServerDAO, PlayerDAO, PlayerVerificationDAO
+    
+    # Проверяем, что сервер есть у пользователя
+    user_server_dao = UserServerDAO(session)
+    user_servers = await user_server_dao.find_by_user(user_context.user_id)
+    if server_id not in [us.server_id for us in user_servers]:
+        raise ForbiddenException("Сервер не добавлен в ваш список")
+    
+    # Находим игрока
+    player_dao = PlayerDAO(session)
+    player = await player_dao.find_by_user_and_server(user_context.user_id, server_id)
+    
+    if not player:
+        return {
+            "has_player": False,
+            "message": "Игрок не привязан"
+        }
+    
+    # Получаем статус подтверждения
+    verification_dao = PlayerVerificationDAO(session)
+    verification = await verification_dao.find_by_user_and_player(
+        user_context.user_id, player.id, server_id
+    )
+    
+    return {
+        "has_player": True,
+        "player_id": player.id,
+        "player_name": player.name,
+        "player_account_id": player.account_id,
+        "is_verified": verification.is_verified if verification else player.is_verified,
+        "verification_code": verification.verification_code if verification and not verification.is_verified else None,
+        "verified_at": verification.verified_at if verification else None
+    }
+
+
+@router.post("/browser/verify", response_model=BrowserVerificationResponse)
+async def browser_verify_player(
+    request: BrowserVerificationRequest,
+    session: AsyncSession = Depends(get_session_with_commit)
+):
+    """
+    Эндпоинт для расширения браузера.
+    Подтверждает игрока по коду и возвращает API-ключ.
+    """
+    from app.game.dao import ServerDAO, PlayerDAO, PlayerVerificationDAO, ApiKeyDAO
+    from sqlalchemy import select
+    import secrets
+    
+    # Находим сервер по URL
+    server_dao = ServerDAO(session)
+    stmt = select(server_dao.model).where(server_dao.model.url == request.server_url)
+    result = await session.execute(stmt)
+    server = result.scalar_one_or_none()
+    
+    if not server:
+        return BrowserVerificationResponse(
+            success=False,
+            message="Сервер не найден",
+            player_verified=False,
+            api_key=None
+        )
+    
+    # Находим игрока по server_id и account_id
+    player_dao = PlayerDAO(session)
+    stmt = select(player_dao.model).where(
+        player_dao.model.server_id == server.id,
+        player_dao.model.account_id == request.player_account_id
+    )
+    result = await session.execute(stmt)
+    player = result.scalar_one_or_none()
+    
+    if not player:
+        return BrowserVerificationResponse(
+            success=False,
+            message=f"Игрок с ID {request.player_account_id} не найден на сервере {server.name}",
+            player_verified=False,
+            api_key=None
+        )
+    
+    # Проверяем, что игрок привязан к какому-то пользователю
+    if not player.user_id:
+        return BrowserVerificationResponse(
+            success=False,
+            message="Этот игрок не привязан ни к одному аккаунту. Сначала привяжите игрока в панели управления.",
+            player_verified=False,
+            api_key=None
+        )
+    
+    # Ищем запись подтверждения
+    verification_dao = PlayerVerificationDAO(session)
+    verification = await verification_dao.find_by_user_and_player(
+        user_id=player.user_id,
+        player_id=player.id,
+        server_id=server.id
+    )
+    
+    if not verification:
+        return BrowserVerificationResponse(
+            success=False,
+            message="Запрос на подтверждение не найден. Сначала привяжите игрока в панели управления.",
+            player_verified=False,
+            api_key=None
+        )
+    
+    if verification.is_verified:
+        # Уже подтверждён — возвращаем существующий ключ
+        api_key_dao = ApiKeyDAO(session)
+        existing_key = await api_key_dao.find_by_player_and_server(
+            player.id, server.id, only_active=True
+        )
+        
+        if existing_key:
+            return BrowserVerificationResponse(
+                success=True,
+                message="Игрок уже подтверждён",
+                player_verified=True,
+                api_key=existing_key.key_value,
+                is_verified=True
+            )
+        else:
+            # Если ключа нет — генерируем новый
+            new_key = secrets.token_urlsafe(32)
+            new_api_key = await api_key_dao.create_key(player.id, server.id, new_key)
+            return BrowserVerificationResponse(
+                success=True,
+                message="Игрок уже подтверждён, ключ восстановлен",
+                player_verified=True,
+                api_key=new_api_key.key_value,
+                is_verified=True
+            )
+    
+    # Проверяем код
+    if verification.verification_code != request.verification_code:
+        return BrowserVerificationResponse(
+            success=False,
+            message="Неверный код подтверждения",
+            player_verified=False,
+            api_key=None
+        )
+    
+    # Подтверждаем игрока
+    success = await verification_dao.verify(
+        user_id=player.user_id,
+        player_id=player.id,
+        server_id=server.id,
+        code=request.verification_code
+    )
+    
+    if not success:
+        return BrowserVerificationResponse(
+            success=False,
+            message="Ошибка при подтверждении",
+            player_verified=False,
+            api_key=None
+        )
+    
+    # Генерируем API-ключ для расширения
+    new_key = secrets.token_urlsafe(32)
+    api_key_dao = ApiKeyDAO(session)
+    new_api_key = await api_key_dao.create_key(player.id, server.id, new_key)
+    
+    print(f"[DEBUG] Returning response: success={success}, has_api_key={bool(new_api_key)}")
+
+    return BrowserVerificationResponse(
+        success=True,
+        message="Игрок успешно подтверждён! API-ключ сгенерирован.",
+        player_verified=True,
+        api_key=new_api_key.key_value,
+        is_verified=True
+    )
 
 
 # === Эндпоинты для обновления карты ===
@@ -898,3 +1266,249 @@ async def get_server_villages(
         per_page=per_page,
         pages=pages
     )
+
+
+# === Эндпоинты для работы с API ключами ===
+
+
+class AuthKeyRequest(BaseModel):
+    """Схема запроса ключа авторизации."""
+    server: str = Field(..., description="URL сервера")
+    player_name: str = Field(..., description="Имя игрока")
+    request_time: str = Field(..., description="Время запроса")
+
+
+@router.post("/api/auth/key")
+async def get_auth_key(
+    request: AuthKeyRequest,
+    session: AsyncSession = Depends(get_session_without_commit)
+):
+    """
+    Получить API-ключ для расширения.
+    Эндпоинт публичный, не требует авторизации.
+    """
+    from app.game.dao import ServerDAO, PlayerDAO, ApiKeyDAO
+    from sqlalchemy import select
+    import secrets
+    
+    # Находим сервер по URL
+    server_dao = ServerDAO(session)
+    stmt = select(server_dao.model).where(server_dao.model.url == request.server)
+    result = await session.execute(stmt)
+    server = result.scalar_one_or_none()
+    
+    if not server:
+        return {
+            "status": "denied",
+            "key": None,
+            "message": "Сервер не найден"
+        }
+    
+    # Находим игрока
+    player_dao = PlayerDAO(session)
+    stmt = select(player_dao.model).where(
+        player_dao.model.server_id == server.id,
+        player_dao.model.name == request.player_name
+    )
+    result = await session.execute(stmt)
+    player = result.scalar_one_or_none()
+    
+    if not player:
+        return {
+            "status": "denied",
+            "key": None,
+            "message": "Игрок не найден"
+        }
+    
+    # Проверяем, что игрок подтверждён
+    if not player.is_verified:
+        return {
+            "status": "pending",
+            "key": None,
+            "message": "Игрок не подтверждён. Сначала введите код подтверждения."
+        }
+    
+    # Проверяем, что игрок привязан к пользователю
+    if not player.user_id:
+        return {
+            "status": "pending",
+            "key": None,
+            "message": "Игрок не привязан к аккаунту"
+        }
+    
+    # Ищем активный API-ключ
+    api_key_dao = ApiKeyDAO(session)
+    api_key = await api_key_dao.find_by_player_and_server(
+        player.id, server.id, only_active=True
+    )
+    
+    if api_key:
+        return {
+            "status": "confirmed",
+            "key": api_key.key_value,
+            "message": "Ключ получен"
+        }
+    
+    # Если ключа нет — генерируем новый (только если игрок подтверждён и привязан)
+    new_key = secrets.token_urlsafe(32)
+    
+    # Для создания ключа нужна сессия с коммитом, создаём новую
+    from app.dao.database import async_session_maker
+    from sqlalchemy.ext.asyncio import AsyncSession
+    
+    async with AsyncSession(async_session_maker()) as write_session:
+        write_api_key_dao = ApiKeyDAO(write_session)
+        new_api_key = await write_api_key_dao.create_key(player.id, server.id, new_key)
+        await write_session.commit()
+        
+        return {
+            "status": "confirmed",
+            "key": new_api_key.key_value,
+            "message": "Ключ сгенерирован"
+        }
+
+
+@router.get("/servers/status")
+async def get_server_player_status(
+    player_name: str,
+    server_url: str,
+    session: AsyncSession = Depends(get_session_without_commit)
+    # Убираем user_context — делаем публичным
+):
+    """
+    Получить статус подтверждения игрока.
+    Публичный эндпоинт, не требует авторизации.
+    """
+    from app.game.dao import ServerDAO, PlayerDAO
+    from sqlalchemy import select
+    
+    print(f"[DEBUG] /servers/status called: player_name={player_name}, server_url={server_url}")
+    
+    # Находим сервер по URL
+    server_dao = ServerDAO(session)
+    stmt = select(server_dao.model).where(server_dao.model.url == server_url)
+    result = await session.execute(stmt)
+    server = result.scalar_one_or_none()
+    
+    if not server:
+        print(f"[DEBUG] Server not found: {server_url}")
+        return {
+            "is_verified": False,
+            "message": "Сервер не найден"
+        }
+    
+    # Находим игрока по имени и серверу
+    player_dao = PlayerDAO(session)
+    stmt = select(player_dao.model).where(
+        player_dao.model.server_id == server.id,
+        player_dao.model.name == player_name
+    )
+    result = await session.execute(stmt)
+    player = result.scalar_one_or_none()
+    
+    if not player:
+        print(f"[DEBUG] Player not found: {player_name} on server {server.id}")
+        return {
+            "is_verified": False,
+            "message": "Игрок не найден"
+        }
+    
+    print(f"[DEBUG] Player found: id={player.id}, is_verified={player.is_verified}, user_id={player.user_id}")
+    
+    # Возвращаем статус (не проверяем привязку к пользователю)
+    return {
+        "is_verified": player.is_verified,
+        "player_id": player.id,
+        "player_name": player.name,
+        "player_account_id": player.account_id,
+        "has_user": player.user_id is not None,
+        "message": "Подтверждён" if player.is_verified else "Не подтверждён"
+    }
+
+
+# === Эндпоинты для приёма данных от расширения ===
+
+class AttackDataRequest(BaseModel):
+    """Схема запроса данных об атаках."""
+    message_id: str = Field(..., description="ID сообщения")
+    type: str = Field(..., description="Тип данных: village/alliance")
+    data: List[Dict[str, Any]] = Field(..., description="Данные атак")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Метаданные")
+
+
+class RallyPointRequest(BaseModel):
+    """Схема запроса данных из пункта сбора."""
+    message_id: str = Field(..., description="ID сообщения")
+    type: str = Field("rally_point", description="Тип данных")
+    movement_info: List[Dict[str, Any]] = Field(..., description="Информация о перемещениях")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Метаданные")
+
+
+@router.post("/api/attacks")
+async def receive_attack_data(
+    request: Request,
+    data: Dict[str, Any],
+    x_auth_key: str = Header(..., alias="X-Auth-Key"),
+    x_server: str = Header(..., alias="X-Server"),
+    x_player_name: str = Header(..., alias="X-Player-Name")
+):
+    """
+    Эндпоинт для приёма данных об атаках от расширения.
+    Сохраняет данные в лог-файл.
+    """
+    from app.services.attack_logger import attack_logger
+    from app.utils.code_generator import decode_player_name
+    
+    player_name = decode_player_name(x_player_name)
+    logger.info(f"Received attack data from {player_name} on {x_server}")
+    
+    # Получаем тело запроса
+    body_bytes = await request.body()
+    raw_body = body_bytes.decode('utf-8') if body_bytes else ""
+    
+    # Логируем данные
+    attack_logger.log_attack_data(data, dict(request.headers), raw_body)
+    
+    return {
+        "status": "success",
+        "message": "Attack data received and saved",
+        "message_id": data.get("message_id"),
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@router.post("/api/rally-point")
+async def receive_rally_point_data(
+    request: Request,
+    data: Dict[str, Any],
+    x_auth_key: str = Header(..., alias="X-Auth-Key"),
+    x_server: str = Header(..., alias="X-Server"),
+    x_player_name: str = Header(..., alias="X-Player-Name")
+):
+    """
+    Эндпоинт для приёма данных из пункта сбора от расширения.
+    Сохраняет данные в лог-файл.
+    """
+    from app.services.attack_logger import rally_point_logger
+    from app.utils.code_generator import decode_player_name
+    
+    player_name = decode_player_name(x_player_name)
+    logger.info(f"Received rally point data from {player_name} on {x_server}")
+    
+    # Получаем тело запроса
+    body_bytes = await request.body()
+    raw_body = body_bytes.decode('utf-8') if body_bytes else ""
+    
+    # Логируем данные
+    rally_point_logger.log_rally_data(data, dict(request.headers), raw_body)
+    
+    return {
+        "status": "success",
+        "message": "Rally point data received and saved",
+        "message_id": data.get("message_id"),
+        "movements_count": len(data.get("movement_info", [])),
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+# === Эндпоинты для приёма данных от расширения ===

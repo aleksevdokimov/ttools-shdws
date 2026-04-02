@@ -119,6 +119,26 @@ class BaseDAO(Generic[T]):
             logger.error(f"Ошибка при удалении записей: {e}")
             raise
 
+    async def delete_by_id(self, record_id: int) -> int:
+        """
+        Удалить запись по ID.
+        
+        Args:
+            record_id: ID записи
+            
+        Returns:
+            Количество удалённых записей
+        """
+        logger.info(f"Удаление записи {self.model.__name__} с ID {record_id}")
+        try:
+            stmt = sqlalchemy_delete(self.model).where(self.model.id == record_id)
+            result = await self._session.execute(stmt)
+            await self._session.flush()
+            return result.rowcount
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при удалении записи: {e}")
+            raise
+
     async def count(self, filters: BaseModel | None = None):
         filter_dict = filters.model_dump(exclude_unset=True) if filters else {}
         logger.info(f"Подсчет количества записей {self.model.__name__} по фильтру: {filter_dict}")

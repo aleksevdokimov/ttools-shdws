@@ -539,3 +539,58 @@ class MapAreaResponse(BaseModel):
     center_y: int = Field(..., description="Y координата центра")
     size: int = Field(..., description="Размер карты сервера (от -size до size)")
     cells: List[MapAreaCell] = Field(..., description="Список клеток 15x15 вокруг центра")
+
+
+# === Player Verification Schemas ===
+
+class PlayerVerificationBase(BaseModel):
+    """Базовая схема подтверждения игрока."""
+    user_id: int = Field(..., description="ID пользователя")
+    player_id: int = Field(..., description="ID игрока")
+    server_id: int = Field(..., description="ID сервера")
+    verification_code: str = Field(..., min_length=4, max_length=10, description="Код подтверждения")
+    is_verified: bool = Field(False, description="Статус подтверждения")
+
+
+class PlayerVerificationCreate(BaseModel):
+    """Схема создания подтверждения."""
+    player_id: int = Field(..., description="ID игрока")
+    server_id: int = Field(..., description="ID сервера")
+
+
+class PlayerVerificationUpdate(BaseModel):
+    """Схема обновления подтверждения."""
+    player_id: Optional[int] = Field(None, description="ID игрока")
+    verification_code: Optional[str] = Field(None, min_length=4, max_length=10)
+    is_verified: Optional[bool] = None
+    verified_at: Optional[datetime] = None
+
+
+class PlayerVerificationResponse(BaseModel):
+    """Схема ответа подтверждения."""
+    id: int = Field(..., description="ID записи")
+    user_id: int = Field(..., description="ID пользователя")
+    player_id: int = Field(..., description="ID игрока")
+    server_id: int = Field(..., description="ID сервера")
+    player_name: str = Field(..., description="Имя игрока")
+    verification_code: str = Field(..., description="Код подтверждения")
+    is_verified: bool = Field(..., description="Статус подтверждения")
+    verified_at: Optional[datetime] = Field(None, description="Дата подтверждения")
+    created_at: datetime = Field(..., description="Дата создания")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+
+class PlayerVerificationStatusResponse(BaseModel):
+    """Схема ответа статуса подтверждения."""
+    player_id: int = Field(..., description="ID игрока")
+    player_name: str = Field(..., description="Имя игрока")
+    is_verified: bool = Field(..., description="Подтверждён ли")
+    verification_code: Optional[str] = Field(None, description="Код подтверждения (только если не подтверждён)")
+    verified_at: Optional[datetime] = Field(None, description="Дата подтверждения")
+
+
+class PlayerSelectRequest(BaseModel):
+    """Схема запроса выбора игрока."""
+    player_id: int = Field(..., description="ID выбранного игрока")

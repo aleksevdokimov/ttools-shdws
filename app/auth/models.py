@@ -37,6 +37,7 @@ class User(Base):
     settings: Mapped["UserSettings"] = relationship("UserSettings", back_populates="user", uselist=False)
     user_servers: Mapped[list["UserServer"]] = relationship("UserServer", back_populates="user")
     players: Mapped[list["Player"]] = relationship("Player", back_populates="user")
+    player_verifications: Mapped[list["PlayerVerification"]] = relationship("PlayerVerification", back_populates="user")
 
     # Отношение к registration token
     registration_token: Mapped["RegistrationToken"] = relationship("RegistrationToken", back_populates="user", uselist=False)

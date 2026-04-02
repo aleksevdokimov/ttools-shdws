@@ -1,0 +1,18 @@
+[
+  {
+    "id": "66dd00d3-4f51-4945-8ff1-2c450cafc67f",
+    "received_at": "2026-04-02T18:04:12.622077",
+    "player_name": "Upseg",
+    "server": "ts8.x1.europe.travian.com",
+    "auth_key": "wX6Jt0EI...",
+    "type": "village",
+    "data_count": 1,
+    "raw_body": "{\"message_id\":\"village_1775142252618\",\"type\":\"village\",\"data\":[{\"name\":\"Upseg`s, village\",\"id\":\"67215\",\"attacks\":[{\"type\":\"attack\",\"count\":6}]}],\"metadata\":{\"server\":\"ts8.x1.europe.travian.com\",\"player\":\"Upseg\",\"source\":\"manual_scan\",\"page\":\"https://ts8.x1.europe.travian.com/build.php?id=39&gid=16\"}}",
+    "metadata": {
+      "server": "ts8.x1.europe.travian.com",
+      "player": "Upseg",
+      "source": "manual_scan",
+      "page": "https://ts8.x1.europe.travian.com/build.php?id=39&gid=16"
+    }
+  }
+]

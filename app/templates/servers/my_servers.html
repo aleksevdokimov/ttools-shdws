@@ -45,37 +45,31 @@ async function loadUserData() {
         if (response.ok) {
             const user = await response.json();
             
-            // Обновляем имя пользователя
             const userLogin = document.getElementById('user-login');
             if (userLogin) {
                 userLogin.textContent = user.username;
             }
             
-            // Обновляем nav в зависимости от выбранного сервера
             if (user.selected_server_name) {
                 updateNavServer(user.selected_server_name, user.player_name);
             } else {
                 updateNavServer(null, null);
             }
             
-            // Обновляем ссылки на альянсы, игроков и деревни
             if (user.selected_server_id) {
                 updateGameLinks(user.selected_server_id);
             }
             
-            // Показываем ссылку "Мои серверы" для всех авторизованных пользователей
             if (document.getElementById('my-servers-link')) {
                 document.getElementById('my-servers-link').style.display = 'flex';
             }
             
-            // Показываем ссылку "Серверы" для админа (role_id = 4) и модератора (role_id = 2)
             if (user.role_id === 4 || user.role_id === 2) {
                 if (document.getElementById('servers-link')) {
                     document.getElementById('servers-link').style.display = 'flex';
                 }
             }
 
-            // Показываем ссылку "Пользователи" только для админа (role_id = 4)
             if (user.role_id === 4) {
                 if (document.getElementById('users-link')) {
                     document.getElementById('users-link').style.display = 'flex';
@@ -157,11 +151,44 @@ function renderServers(servers) {
                     <span class="server-speed">${escapeHtml(server.server_speed)}</span>
                 </div>
                 <div class="server-info-row">
-                    <span class="server-label">Аккаунт:</span>
-                    <span class="server-player ${server.player_verified ? 'verified' : 'not-verified'}">
-                        ${server.player_name ? escapeHtml(server.player_name) : 'Не привязан'}
-                        ${server.player_verified ? '✓' : ''}
-                    </span>
+                    <span class="server-label">Игрок:</span>
+                    <div class="player-attach-container" data-server-id="${server.server_id}">
+                        <div class="player-input-group" id="player-input-group-${server.server_id}" 
+                             style="${server.player_name && server.player_verified ? 'display: none;' : 'display: flex;'}">
+                            <input type="text" 
+                                   class="player-name-input" 
+                                   id="player-name-${server.server_id}"
+                                   placeholder="Введите имя игрока"
+                                   value="${server.player_name && !server.player_verified ? escapeHtml(server.player_name) : ''}">
+                            <button class="attach-btn" data-server-id="${server.server_id}">
+                                ${server.player_name && !server.player_verified ? 'Перепривязать' : 'Привязать'}
+                            </button>
+                        </div>
+                        <div class="player-display-group" id="player-display-group-${server.server_id}"
+                             style="${server.player_name && server.player_verified ? 'display: flex;' : 'display: none;'}">
+                            <a href="${escapeHtml(server.server_url)}" target="_blank" class="player-link">
+                                ${escapeHtml(server.player_name)}
+                            </a>
+                            <button class="detach-btn" data-server-id="${server.server_id}" title="Отвязать">
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="server-info-row verification-row" data-server-id="${server.server_id}" 
+                     id="verification-row-${server.server_id}"
+                     style="${server.player_name && !server.player_verified ? 'display: flex;' : 'display: none;'}">
+                    <span class="server-label">Код подтверждения:</span>
+                    <div class="verification-code-container">
+                        <code class="verification-code" id="code-${server.server_id}">${server.verification_code || '...'}</code>
+                        <button class="copy-code-btn" data-code="${server.verification_code || ''}" title="Копировать">📋</button>
+                    </div>
+                </div>
+                <div class="server-info-row verification-status" data-server-id="${server.server_id}"
+                     id="verification-status-${server.server_id}"
+                     style="${server.player_verified ? 'display: flex;' : 'display: none;'}">
+                    <span class="server-label">Статус:</span>
+                    <span class="verified-badge">✓ Подтверждена</span>
                 </div>
             </div>
         </div>
@@ -172,8 +199,197 @@ function renderServers(servers) {
         </div>
     `;
     
-    // Добавляем обработчики
     document.getElementById('add-server-panel').addEventListener('click', openServerModal);
+}
+
+// Привязка игрока по имени
+async function attachPlayer(serverId) {
+    const input = document.getElementById(`player-name-${serverId}`);
+    const playerName = input.value.trim();
+    
+    if (!playerName) {
+        showToast('Введите имя игрока', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/game/servers/${serverId}/players/attach`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({ player_name: playerName })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            showToast(data.detail || 'Ошибка при привязке', 'error');
+            return;
+        }
+        
+        if (data.status === 'not_found') {
+            showToast(data.message, 'error');
+            return;
+        }
+        
+        if (data.status === 'already_verified') {
+            showToast('Игрок уже подтверждён', 'info');
+            // Обновляем UI
+            const inputGroup = document.getElementById(`player-input-group-${serverId}`);
+            const displayGroup = document.getElementById(`player-display-group-${serverId}`);
+            const verificationRow = document.getElementById(`verification-row-${serverId}`);
+            const verificationStatus = document.getElementById(`verification-status-${serverId}`);
+            
+            if (inputGroup) inputGroup.style.display = 'none';
+            if (displayGroup) displayGroup.style.display = 'flex';
+            if (verificationRow) verificationRow.style.display = 'none';
+            if (verificationStatus) verificationStatus.style.display = 'flex';
+            return;
+        }
+        
+        if (data.status === 'pending') {
+            showToast('Ожидает подтверждения', 'info');
+            const codeElement = document.getElementById(`code-${serverId}`);
+            if (codeElement) {
+                codeElement.textContent = data.verification_code;
+            }
+            const verificationRow = document.getElementById(`verification-row-${serverId}`);
+            if (verificationRow) {
+                verificationRow.style.display = 'flex';
+            }
+            const copyBtn = document.querySelector(`.copy-code-btn[data-server-id="${serverId}"]`);
+            if (copyBtn) {
+                copyBtn.setAttribute('data-code', data.verification_code);
+            }
+            return;
+        }
+        
+        if (data.status === 'success') {
+            showToast('Код подтверждения сгенерирован', 'success');
+            
+            const codeElement = document.getElementById(`code-${serverId}`);
+            if (codeElement) {
+                codeElement.textContent = data.verification_code;
+            }
+            
+            const verificationRow = document.getElementById(`verification-row-${serverId}`);
+            if (verificationRow) {
+                verificationRow.style.display = 'flex';
+            }
+            
+            const verificationStatus = document.getElementById(`verification-status-${serverId}`);
+            if (verificationStatus) {
+                verificationStatus.style.display = 'none';
+            }
+            
+            const copyBtn = document.querySelector(`.copy-code-btn[data-server-id="${serverId}"]`);
+            if (copyBtn) {
+                copyBtn.setAttribute('data-code', data.verification_code);
+            }
+            
+            const attachBtn = document.querySelector(`.attach-btn[data-server-id="${serverId}"]`);
+            if (attachBtn) {
+                attachBtn.textContent = 'Перепривязать';
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка привязки:', error);
+        showToast('Ошибка привязки игрока', 'error');
+    }
+}
+
+// Отвязка игрока
+async function detachPlayer(serverId) {
+    if (!confirm('Вы уверены, что хотите отвязать игрока?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/game/servers/${serverId}/players/detach`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            showToast('Игрок отвязан', 'success');
+            
+            const displayGroup = document.getElementById(`player-display-group-${serverId}`);
+            const inputGroup = document.getElementById(`player-input-group-${serverId}`);
+            const verificationRow = document.getElementById(`verification-row-${serverId}`);
+            const verificationStatus = document.getElementById(`verification-status-${serverId}`);
+            
+            if (displayGroup) displayGroup.style.display = 'none';
+            if (inputGroup) inputGroup.style.display = 'flex';
+            if (verificationRow) verificationRow.style.display = 'none';
+            if (verificationStatus) verificationStatus.style.display = 'none';
+            
+            const input = document.getElementById(`player-name-${serverId}`);
+            if (input) {
+                input.value = '';
+            }
+            
+            const attachBtn = document.querySelector(`.attach-btn[data-server-id="${serverId}"]`);
+            if (attachBtn) {
+                attachBtn.textContent = 'Привязать';
+            }
+        } else {
+            showToast(data.detail || 'Ошибка отвязки', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка отвязки:', error);
+        showToast('Ошибка отвязки игрока', 'error');
+    }
+}
+
+// Проверка статуса подтверждения
+function startVerificationPolling(serverId) {
+    let pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/game/servers/${serverId}/players/status`, {
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.has_player && data.is_verified) {
+                    clearInterval(pollInterval);
+                    
+                    const verificationRow = document.getElementById(`verification-row-${serverId}`);
+                    const verificationStatus = document.getElementById(`verification-status-${serverId}`);
+                    const inputGroup = document.getElementById(`player-input-group-${serverId}`);
+                    const displayGroup = document.getElementById(`player-display-group-${serverId}`);
+                    
+                    if (verificationRow) verificationRow.style.display = 'none';
+                    if (verificationStatus) verificationStatus.style.display = 'flex';
+                    if (inputGroup) inputGroup.style.display = 'none';
+                    if (displayGroup) {
+                        displayGroup.style.display = 'flex';
+                        const playerLink = displayGroup.querySelector('.player-link');
+                        if (playerLink) {
+                            playerLink.textContent = data.player_name;
+                        }
+                    }
+                    
+                    showToast('Игрок подтверждён!', 'success');
+                    loadUserServers();
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка проверки статуса:', error);
+        }
+    }, 5000);
+    
+    setTimeout(() => {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+        }
+    }, 300000);
+    
+    return pollInterval;
 }
 
 // Открытие модального окна выбора сервера
@@ -219,7 +435,6 @@ document.getElementById('modal-close').addEventListener('click', () => {
     document.getElementById('server-select-modal').style.display = 'none';
 });
 
-// Закрытие по клику вне модального окна
 document.getElementById('server-select-modal').addEventListener('click', (e) => {
     if (e.target.id === 'server-select-modal') {
         e.target.style.display = 'none';
@@ -238,7 +453,7 @@ async function addServer(serverId) {
             showToast('Сервер добавлен', 'success');
             document.getElementById('server-select-modal').style.display = 'none';
             loadUserServers();
-            loadUserData(); // Обновить данные пользователя
+            loadUserData();
         } else {
             const data = await response.json();
             showToast(data.detail || 'Ошибка при добавлении сервера', 'error');
@@ -255,11 +470,9 @@ async function selectServer(serverId, isActive) {
         let url, successMessage;
 
         if (isActive) {
-            // Открепление сервера
             url = `/game/user-servers/${serverId}/deselect`;
             successMessage = 'Сервер откреплён';
         } else {
-            // Выбор сервера
             url = `/game/user-servers/${serverId}/select`;
             successMessage = 'Сервер выбран';
         }
@@ -271,12 +484,11 @@ async function selectServer(serverId, isActive) {
         if (response.ok) {
             showToast(successMessage, 'success');
             if (isActive) {
-                // При откреплении сразу обновляем nav
                 updateNavServer(null, null);
                 updateGameLinks(null);
             } 
             loadUserServers();
-            loadUserData(); // Обновить данные пользователя и nav
+            loadUserData();
         } else {
             showToast(`Ошибка при ${isActive ? 'откреплении' : 'выборе'} сервера`, 'error');
         }
@@ -300,7 +512,7 @@ async function removeServer(serverId) {
         if (response.ok) {
             showToast('Сервер удалён', 'success');
             loadUserServers();
-            loadUserData(); // Обновить данные пользователя
+            loadUserData();
         } else {
             showToast('Ошибка при удалении сервера', 'error');
         }
@@ -336,9 +548,71 @@ document.getElementById('logout-link').addEventListener('click', async (e) => {
     }
 });
 
+// Обработчики событий
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('attach-btn')) {
+        const serverId = e.target.getAttribute('data-server-id');
+        attachPlayer(serverId);
+    }
+    
+    if (e.target.classList.contains('detach-btn')) {
+        const serverId = e.target.getAttribute('data-server-id');
+        detachPlayer(serverId);
+    }
+    
+    if (e.target.classList.contains('copy-code-btn')) {
+        // Получаем код из соседнего элемента code
+        const codeElement = e.target.previousElementSibling;
+        const code = codeElement ? codeElement.textContent : '';
+        
+        if (code && code !== '...') {
+            // Пробуем использовать clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(code).then(() => {
+                    showToast('Код скопирован!', 'success');
+                }).catch(() => {
+                    // Если не удалось, пробуем старый метод
+                    fallbackCopy(code);
+                });
+            } else {
+                // Для старых браузеров
+                fallbackCopy(code);
+            }
+        }
+    }
+});
+
+// Fallback функция копирования
+function fallbackCopy(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand('copy');
+        showToast('Код скопирован!', 'success');
+    } catch (err) {
+        showToast('Ошибка копирования', 'error');
+    }
+    document.body.removeChild(textarea);
+}
+
 // Инициализация
 loadUserData();
 loadUserServers();
+
+// Запускаем проверку статуса для всех серверов
+setTimeout(() => {
+    document.querySelectorAll('.server-panel').forEach(panel => {
+        const serverId = panel.getAttribute('data-server-id');
+        const verificationRow = document.getElementById(`verification-row-${serverId}`);
+        if (verificationRow && verificationRow.style.display === 'flex') {
+            startVerificationPolling(serverId);
+        }
+    });
+}, 2000);
 </script>
 
 <style>
@@ -462,17 +736,119 @@ loadUserServers();
     font-weight: 500;
 }
 
-.server-player {
+/* Привязка игрока */
+.player-attach-container {
+    display: flex;
+    flex: 1;
+}
+
+.player-input-group {
+    display: flex;
+    gap: var(--spacing-sm);
+    width: 100%;
+}
+
+.player-name-input {
+    flex: 1;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-card);
     color: var(--text-primary);
 }
 
-.server-player.verified {
-    color: var(--success);
+.attach-btn {
+    padding: var(--spacing-xs) var(--spacing-md);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background-color: var(--accent);
+    color: #1a1d23;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.server-player.not-verified {
-    color: var(--text-muted);
-    font-style: italic;
+.attach-btn:hover {
+    background-color: var(--accent-hover);
+}
+
+.player-display-group {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+    flex: 1;
+}
+
+.player-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.player-link:hover {
+    text-decoration: underline;
+}
+
+.detach-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: transparent;
+    color: var(--error);
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.detach-btn:hover {
+    background-color: var(--error);
+    border-color: var(--error);
+    color: white;
+}
+
+/* Строка подтверждения */
+.verification-row {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.verification-code-container {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+
+.verification-code {
+    background-color: var(--bg-secondary);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 1.1rem;
+    letter-spacing: 1px;
+}
+
+.copy-code-btn {
+    padding: var(--spacing-xs);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: transparent;
+    cursor: pointer;
+}
+
+.copy-code-btn:hover {
+    background-color: var(--border-color);
+}
+
+/* Статус подтверждения */
+.verification-status {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.verified-badge {
+    color: var(--success);
+    font-weight: 500;
 }
 
 /* Панель добавления */
@@ -506,26 +882,6 @@ loadUserServers();
 .add-server-panel:hover .add-icon-large,
 .add-server-panel:hover .add-text {
     color: var(--accent);
-}
-
-/* Кнопка добавления */
-.btn-primary {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background-color: var(--accent);
-    color: #1a1d23;
-    border: none;
-    border-radius: 4px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.btn-primary:hover {
-    background-color: var(--accent-hover);
-    color: #1a1d23;
 }
 
 /* Модальное окно */
@@ -639,16 +995,6 @@ loadUserServers();
 
 .error {
     color: var(--error);
-}
-
-.btn-icon {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-}
-
-.add-icon {
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1d23' stroke-width='2'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") no-repeat center;
 }
 </style>
 {% endblock %}

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Tuple
 from sqlalchemy import func
 from app.dao.base import BaseDAO
-from app.game.models import Server, UserServer, Player, TypeField, MapCell, MapFeature, Village
+from app.game.models import Server, UserServer, Player, TypeField, MapCell, MapFeature, Village, PlayerVerification, ApiKey
 from app.game.schemas import UserServerCreate
 
 
@@ -597,6 +597,22 @@ class PlayerDAO(BaseDAO):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def find_by_server(self, server_id: int) -> list[Player]:
+        """
+        Найти всех игроков сервера.
+        
+        Args:
+            server_id: ID сервера
+            
+        Returns:
+            Список игроков
+        """
+        from sqlalchemy import select
+        
+        stmt = select(self.model).where(self.model.server_id == server_id)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
 
 class TypeFieldDAO(BaseDAO):
     """DAO для работы с типами полей карты."""
@@ -768,5 +784,285 @@ class MapFeatureDAO(BaseDAO):
         stmt = select(self.model).where(self.model.server_id == server_id)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+
+class PlayerVerificationDAO(BaseDAO):
+    """DAO для работы с подтверждениями игроков."""
+    model = PlayerVerification
+
+    async def find_by_user_and_player(
+        self, 
+        user_id: int, 
+        player_id: int,
+        server_id: int
+    ) -> PlayerVerification | None:
+        """
+        Найти подтверждение по пользователю и игроку.
+        
+        Args:
+            user_id: ID пользователя
+            player_id: ID игрока
+            server_id: ID сервера
+            
+        Returns:
+            Запись подтверждения или None
+        """
+        from sqlalchemy import select
+        
+        stmt = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.player_id == player_id,
+            self.model.server_id == server_id
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def find_by_user_and_server(
+        self, 
+        user_id: int, 
+        server_id: int
+    ) -> list[PlayerVerification]:
+        """
+        Найти все подтверждения пользователя на сервере.
+        
+        Args:
+            user_id: ID пользователя
+            server_id: ID сервера
+            
+        Returns:
+            Список записей подтверждений
+        """
+        from sqlalchemy import select
+        
+        stmt = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.server_id == server_id
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create_or_update(
+        self,
+        user_id: int,
+        player_id: int,
+        server_id: int,
+        verification_code: str
+    ) -> PlayerVerification:
+        """
+        Создать или обновить подтверждение.
+        
+        Args:
+            user_id: ID пользователя
+            player_id: ID игрока
+            server_id: ID сервера
+            verification_code: Новый код подтверждения
+            
+        Returns:
+            Запись подтверждения
+        """
+        from app.game.models import PlayerVerification as PV
+        from datetime import datetime
+        
+        existing = await self.find_by_user_and_player(user_id, player_id, server_id)
+        
+        if existing:
+            # Обновляем существующую запись
+            existing.verification_code = verification_code
+            existing.is_verified = False
+            existing.verified_at = None
+            await self._session.flush()
+            return existing
+        else:
+            # Создаём новую запись напрямую через ORM
+            new_verification = PV(
+                user_id=user_id,
+                player_id=player_id,
+                server_id=server_id,
+                verification_code=verification_code,
+                is_verified=False
+            )
+            self._session.add(new_verification)
+            await self._session.flush()
+            return new_verification
+
+    async def verify(
+        self,
+        user_id: int,
+        player_id: int,
+        server_id: int,
+        code: str
+    ) -> bool:
+        """
+        Подтвердить игрока по коду.
+        
+        Args:
+            user_id: ID пользователя
+            player_id: ID игрока
+            server_id: ID сервера
+            code: Код подтверждения
+            
+        Returns:
+            True если успешно подтверждён
+        """
+        from sqlalchemy import update
+        from datetime import datetime
+        from app.game.models import Player
+        
+        stmt = (
+            update(self.model)
+            .where(
+                self.model.user_id == user_id,
+                self.model.player_id == player_id,
+                self.model.server_id == server_id,
+                self.model.verification_code == code,
+                self.model.is_verified == False
+            )
+            .values(
+                is_verified=True,
+                verified_at=datetime.utcnow()
+            )
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        
+        if result.rowcount > 0:
+            # Обновляем is_verified в модели Player
+            player_stmt = (
+                update(Player)
+                .where(Player.id == player_id)
+                .values(is_verified=True)
+            )
+            await self._session.execute(player_stmt)
+            await self._session.flush()
+            return True
+        
+        return False
+    
+    async def delete_by_id(self, verification_id: int) -> bool:
+        """
+        Удалить запись подтверждения по ID.
+        
+        Args:
+            verification_id: ID записи
+            
+        Returns:
+            True если удалено
+        """
+        from sqlalchemy import delete
+        
+        stmt = delete(self.model).where(self.model.id == verification_id)
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount > 0
+
+
+class ApiKeyDAO(BaseDAO):
+    """DAO для работы с API ключами."""
+    model = ApiKey
+
+    async def find_by_player_and_server(
+        self, 
+        player_id: int, 
+        server_id: int,
+        only_active: bool = True
+    ) -> ApiKey | None:
+        """
+        Найти API ключ по игроку и серверу.
+        
+        Args:
+            player_id: ID игрока
+            server_id: ID сервера
+            only_active: Только активные ключи
+            
+        Returns:
+            API ключ или None
+        """
+        from sqlalchemy import select
+        
+        stmt = select(self.model).where(
+            self.model.player_id == player_id,
+            self.model.server_id == server_id
+        )
+        
+        if only_active:
+            stmt = stmt.where(self.model.is_active == True)
+        
+        stmt = stmt.order_by(self.model.created_at.desc())
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def find_active_by_player(self, player_id: int) -> list[ApiKey]:
+        """
+        Найти все активные ключи игрока.
+        
+        Args:
+            player_id: ID игрока
+            
+        Returns:
+            Список API ключей
+        """
+        from sqlalchemy import select
+        
+        stmt = select(self.model).where(
+            self.model.player_id == player_id,
+            self.model.is_active == True
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def deactivate_all_for_player(self, player_id: int, server_id: int) -> int:
+        """
+        Деактивировать все ключи игрока на сервере.
+        
+        Args:
+            player_id: ID игрока
+            server_id: ID сервера
+            
+        Returns:
+            Количество деактивированных ключей
+        """
+        from sqlalchemy import update
+        
+        stmt = (
+            update(self.model)
+            .where(
+                self.model.player_id == player_id,
+                self.model.server_id == server_id
+            )
+            .values(is_active=False)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount
+
+    async def create_key(
+        self, 
+        player_id: int, 
+        server_id: int,
+        key_value: str
+    ) -> ApiKey:
+        """
+        Создать новый API ключ, предварительно деактивируя старые.
+        
+        Args:
+            player_id: ID игрока
+            server_id: ID сервера
+            key_value: Значение ключа
+            
+        Returns:
+            Созданный API ключ
+        """
+        # Деактивируем старые ключи
+        await self.deactivate_all_for_player(player_id, server_id)
+        
+        new_key = ApiKey(
+            player_id=player_id,
+            server_id=server_id,
+            key_value=key_value,
+            is_active=True
+        )
+        self._session.add(new_key)
+        await self._session.flush()
+        return new_key
   
   

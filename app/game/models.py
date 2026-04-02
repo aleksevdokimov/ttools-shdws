@@ -51,6 +51,7 @@ class Server(Base):
     map_updates: Mapped[List["MapUpdate"]] = relationship("MapUpdate", back_populates="server")
     maps: Mapped[List["MapCell"]] = relationship("MapCell", back_populates="server")
     map_features: Mapped[List["MapFeature"]] = relationship("MapFeature", back_populates="server")
+    player_verifications: Mapped[List["PlayerVerification"]] = relationship("PlayerVerification", back_populates="server")
 
 
 class UserServer(Base):
@@ -140,6 +141,7 @@ class Player(Base):
     villages: Mapped[List["Village"]] = relationship("Village", back_populates="player")
     api_keys: Mapped[List["ApiKey"]] = relationship("ApiKey", back_populates="player")
     user: Mapped[Optional["User"]] = relationship("User", back_populates="players")
+    verification: Mapped[Optional["PlayerVerification"]] = relationship("PlayerVerification", back_populates="player", uselist=False)
 
     __table_args__ = (
         UniqueConstraint("server_id", "account_id", name="uq_players_server_account_id"),
@@ -193,6 +195,7 @@ class ApiKey(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Отношения
     player: Mapped["Player"] = relationship("Player", back_populates="api_keys")
@@ -316,4 +319,30 @@ class MapFeature(Base):
 
     __table_args__ = (
         Index("idx_map_features_field_type", "field_type"),
+    )
+
+
+class PlayerVerification(Base):
+    """Подтверждение игрока пользователем."""
+    __tablename__ = "player_verifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    player_id: Mapped[int] = mapped_column(Integer, ForeignKey("players.id"), nullable=False)
+    server_id: Mapped[int] = mapped_column(Integer, ForeignKey("servers.id"), nullable=False)
+    verification_code: Mapped[str] = mapped_column(String(10), nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Отношения
+    user: Mapped["User"] = relationship("app.auth.models.User", back_populates="player_verifications")
+    player: Mapped["Player"] = relationship("Player", back_populates="verification")
+    server: Mapped["Server"] = relationship("Server", back_populates="player_verifications")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "player_id", name="uq_user_player"),
+        Index("idx_player_verifications_user_id", "user_id"),
+        Index("idx_player_verifications_player_id", "player_id"),
     )
