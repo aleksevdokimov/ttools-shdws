@@ -1,8 +1,9 @@
 from typing import List, Dict, Any, Optional
 from loguru import logger
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Request, HTTPException
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel, Field
 
 from app.auth.models import User
@@ -21,6 +22,110 @@ from app.services.scheduler import scheduler
 from app.services.map_update import map_update_service
 from app.presentation.dependencies.permissions import require_permission, get_user_context
 from app.domain.permissions import Permission, UserContext
+from app.utils.code_generator import decode_player_name
+
+
+def normalize_server_url(url: str) -> list[str]:
+    """
+    Нормализует URL сервера для поиска в БД.
+    Возвращает список вариантов URL для поиска.
+    
+    Пример: ts8.x1.europe.travian.com ->
+        ['ts8.x1.europe.travian.com', 'https://ts8.x1.europe.travian.com', 'https://ts8.x1.europe.travian.com/']
+    """
+    variants = []
+    
+    # Убираем протокол и trailing slash для получения "чистого" хоста
+    clean = url
+    if clean.startswith("https://"):
+        clean = clean[8:]
+    elif clean.startswith("http://"):
+        clean = clean[7:]
+    clean = clean.rstrip("/")
+    
+    # Формируем варианты
+    variants.append(clean)                              # ts8.x1.europe.travian.com
+    variants.append(f"https://{clean}")                 # https://ts8.x1.europe.travian.com
+    variants.append(f"https://{clean}/")                # https://ts8.x1.europe.travian.com/
+    variants.append(f"http://{clean}")                  # http://ts8.x1.europe.travian.com
+    variants.append(f"http://{clean}/")                 # http://ts8.x1.europe.travian.com/
+    
+    return variants
+
+
+async def verify_api_key(
+    x_auth_key: str = Header(..., alias="X-Auth-Key"),
+    x_server: str = Header(..., alias="X-Server"),
+    x_player_name: str = Header(..., alias="X-Player-Name"),
+    session: AsyncSession = Depends(get_session_without_commit)
+):
+    """
+    Dependency для проверки API-ключа.
+    Возвращает информацию об игроке и сервере или выбрасывает 401.
+    """
+    player_name = decode_player_name(x_player_name)
+    
+    logger.info(f"[verify_api_key] x_auth_key: {x_auth_key}")
+    logger.info(f"[verify_api_key] x_server: {x_server}")
+    logger.info(f"[verify_api_key] x_player_name (raw): {x_player_name}")
+    logger.info(f"[verify_api_key] player_name (decoded): {player_name}")
+    
+    # Нормализуем URL и ищем сервер по всем вариантам
+    url_variants = normalize_server_url(x_server)
+    logger.info(f"[verify_api_key] URL variants for search: {url_variants}")
+    
+    server_dao = ServerDAO(session)
+    stmt = select(server_dao.model).where(server_dao.model.url.in_(url_variants))
+    result = await session.execute(stmt)
+    server = result.scalar_one_or_none()
+    
+    logger.info(f"[verify_api_key] server found: {server.id if server else 'None'} (url={server.url if server else 'N/A'})")
+    
+    if not server:
+        logger.warning(f"[verify_api_key] Server not found for URL: {x_server} (variants: {url_variants})")
+        raise HTTPException(status_code=401, detail="Server not found")
+    
+    # Находим игрока
+    player_dao = PlayerDAO(session)
+    stmt = select(player_dao.model).where(
+        player_dao.model.server_id == server.id,
+        player_dao.model.name == player_name
+    )
+    result = await session.execute(stmt)
+    player = result.scalar_one_or_none()
+    
+    logger.info(f"[verify_api_key] player found: {player.id if player else 'None'} (name={player_name}, server_id={server.id})")
+    
+    if not player:
+        logger.warning(f"[verify_api_key] Player not found: name={player_name}, server_id={server.id}")
+        raise HTTPException(status_code=401, detail="Player not found")
+    
+    # Проверяем API-ключ
+    api_key_dao = ApiKeyDAO(session)
+    api_key = await api_key_dao.find_by_player_and_server(
+        player.id, server.id, only_active=True
+    )
+    
+    logger.info(f"[verify_api_key] x_auth_key: {x_auth_key} | player_name: {player_name} | server_url: {server.url}")
+    logger.info(f"[verify_api_key] api_key from DB: {api_key.key_value if api_key else 'None'}")
+    logger.info(f"[verify_api_key] api_key is_active: {api_key.is_active if api_key else 'N/A'}")
+    
+    if not api_key or api_key.key_value != x_auth_key:
+        logger.warning(f"[verify_api_key] Invalid or expired auth key. DB key: {api_key.key_value if api_key else 'None'}, received: {x_auth_key}")
+        raise HTTPException(status_code=401, detail="Invalid or expired auth key")
+    
+    # Проверяем, что игрок всё ещё привязан к пользователю
+    if not player.user_id:
+        raise HTTPException(status_code=401, detail="Player not linked to any account")
+    
+    # Возвращаем информацию для дальнейшего использования
+    return {
+        "player": player,
+        "server": server,
+        "player_name": player_name,
+        "player_id": player.id,
+        "server_id": server.id
+    }
 
 
 router = APIRouter()
@@ -686,9 +791,10 @@ async def browser_verify_player(
     from sqlalchemy import select
     import secrets
     
-    # Находим сервер по URL
+    # Находим сервер по URL (с нормализацией)
+    url_variants = normalize_server_url(request.server_url)
     server_dao = ServerDAO(session)
-    stmt = select(server_dao.model).where(server_dao.model.url == request.server_url)
+    stmt = select(server_dao.model).where(server_dao.model.url.in_(url_variants))
     result = await session.execute(stmt)
     server = result.scalar_one_or_none()
     
@@ -1291,9 +1397,10 @@ async def get_auth_key(
     from sqlalchemy import select
     import secrets
     
-    # Находим сервер по URL
+    # Находим сервер по URL (с нормализацией)
+    url_variants = normalize_server_url(request.server)
     server_dao = ServerDAO(session)
-    stmt = select(server_dao.model).where(server_dao.model.url == request.server)
+    stmt = select(server_dao.model).where(server_dao.model.url.in_(url_variants))
     result = await session.execute(stmt)
     server = result.scalar_one_or_none()
     
@@ -1382,16 +1489,19 @@ async def get_server_player_status(
     from app.game.dao import ServerDAO, PlayerDAO
     from sqlalchemy import select
     
-    print(f"[DEBUG] /servers/status called: player_name={player_name}, server_url={server_url}")
+    logger.info(f"[servers/status] called: player_name={player_name}, server_url={server_url}")
     
-    # Находим сервер по URL
+    # Нормализуем URL и ищем сервер по всем вариантам
+    url_variants = normalize_server_url(server_url)
+    logger.info(f"[servers/status] URL variants: {url_variants}")
+    
     server_dao = ServerDAO(session)
-    stmt = select(server_dao.model).where(server_dao.model.url == server_url)
+    stmt = select(server_dao.model).where(server_dao.model.url.in_(url_variants))
     result = await session.execute(stmt)
     server = result.scalar_one_or_none()
     
     if not server:
-        print(f"[DEBUG] Server not found: {server_url}")
+        logger.warning(f"[servers/status] Server not found: {server_url} (variants: {url_variants})")
         return {
             "is_verified": False,
             "message": "Сервер не найден"
@@ -1448,19 +1558,18 @@ class RallyPointRequest(BaseModel):
 async def receive_attack_data(
     request: Request,
     data: Dict[str, Any],
-    x_auth_key: str = Header(..., alias="X-Auth-Key"),
-    x_server: str = Header(..., alias="X-Server"),
-    x_player_name: str = Header(..., alias="X-Player-Name")
+    auth_info: dict = Depends(verify_api_key)
 ):
     """
     Эндпоинт для приёма данных об атаках от расширения.
     Сохраняет данные в лог-файл.
     """
     from app.services.attack_logger import attack_logger
-    from app.utils.code_generator import decode_player_name
     
-    player_name = decode_player_name(x_player_name)
-    logger.info(f"Received attack data from {player_name} on {x_server}")
+    player_name = auth_info["player_name"]
+    server = auth_info["server"]
+    
+    logger.info(f"Received attack data from {player_name} on {server.url} (key verified)")
     
     # Получаем тело запроса
     body_bytes = await request.body()
@@ -1481,19 +1590,18 @@ async def receive_attack_data(
 async def receive_rally_point_data(
     request: Request,
     data: Dict[str, Any],
-    x_auth_key: str = Header(..., alias="X-Auth-Key"),
-    x_server: str = Header(..., alias="X-Server"),
-    x_player_name: str = Header(..., alias="X-Player-Name")
+    auth_info: dict = Depends(verify_api_key)
 ):
     """
     Эндпоинт для приёма данных из пункта сбора от расширения.
     Сохраняет данные в лог-файл.
     """
     from app.services.attack_logger import rally_point_logger
-    from app.utils.code_generator import decode_player_name
     
-    player_name = decode_player_name(x_player_name)
-    logger.info(f"Received rally point data from {player_name} on {x_server}")
+    player_name = auth_info["player_name"]
+    server = auth_info["server"]
+    
+    logger.info(f"Received rally point data from {player_name} on {server.url} (key verified)")
     
     # Получаем тело запроса
     body_bytes = await request.body()
