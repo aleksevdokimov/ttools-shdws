@@ -968,6 +968,43 @@ async def update_all_servers(
     failed = 0
     skipped = 0
 
+    server_dao = ServerDAO(session)
+    
+    for server_id, result in results.items():
+        status = result.get('status', 'error')
+        
+        # Получаем время последнего обновления
+        last_update_info = None
+        if status == 'success':
+            server = await server_dao.find_one_or_none_by_id(server_id)
+            if server:
+                last_update_info = server.last_update_info
+        
+        response_results.append(ServerUpdateResponse(
+            status=status,
+            server_id=server_id,
+            server_name=result.get('server_name'),
+            stats=result.get('stats'),
+            error=result.get('error'),
+            reason=result.get('reason'),
+            last_update_info=last_update_info
+        ))
+        
+        if status == 'success':
+            success += 1
+        elif status == 'skipped':
+            skipped += 1
+        else:
+            failed += 1
+    
+    return UpdateAllResponse(
+        total=len(results),
+        success=success,
+        failed=failed,
+        skipped=skipped,
+        results=response_results
+    )
+
 
 # === Эндпоинты для поиска клеток карты ===
 
@@ -1066,43 +1103,6 @@ async def get_map_area(
         center_y=y,
         size=size,
         cells=cells
-    )
-    
-    server_dao = ServerDAO(session)
-    
-    for server_id, result in results.items():
-        status = result.get('status', 'error')
-        
-        # Получаем время последнего обновления
-        last_update_info = None
-        if status == 'success':
-            server = await server_dao.find_one_or_none_by_id(server_id)
-            if server:
-                last_update_info = server.last_update_info
-        
-        response_results.append(ServerUpdateResponse(
-            status=status,
-            server_id=server_id,
-            server_name=result.get('server_name'),
-            stats=result.get('stats'),
-            error=result.get('error'),
-            reason=result.get('reason'),
-            last_update_info=last_update_info
-        ))
-        
-        if status == 'success':
-            success += 1
-        elif status == 'skipped':
-            skipped += 1
-        else:
-            failed += 1
-    
-    return UpdateAllResponse(
-        total=len(results),
-        success=success,
-        failed=failed,
-        skipped=skipped,
-        results=response_results
     )
 
 

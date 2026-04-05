@@ -373,7 +373,7 @@ async def delete_user(
         raise UserNotFoundException
     
     # Нельзя удалить самого себя
-    if user_id == admin.id:
+    if str(user_id) == user_context.user_id:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
     

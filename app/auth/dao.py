@@ -1,12 +1,40 @@
 import secrets
 from datetime import datetime
 from typing import Tuple
+from sqlalchemy import select, update, func
 from app.dao.base import BaseDAO
 from app.auth.models import User, Role, RegistrationToken
 
 
 class UsersDAO(BaseDAO):
     model = User
+
+    async def find_one_or_none_by_id(self, data_id: int):
+        """Поиск пользователя по ID, исключая удалённых."""
+        try:
+            query = select(self.model).where(
+                self.model.id == data_id,
+                self.model.deleted_at.is_(None)
+            )
+            result = await self._session.execute(query)
+            record = result.scalar_one_or_none()
+            return record
+        except Exception as e:
+            raise
+
+    async def find_one_or_none(self, filters):
+        """Поиск пользователя по фильтрам, исключая удалённых."""
+        try:
+            filter_dict = filters.model_dump(exclude_unset=True)
+            query = select(self.model).where(
+                self.model.deleted_at.is_(None),
+                *[getattr(self.model, k) == v for k, v in filter_dict.items()]
+            )
+            result = await self._session.execute(query)
+            record = result.scalar_one_or_none()
+            return record
+        except Exception as e:
+            raise
 
     async def find_paginated_with_filters(
         self,
@@ -18,6 +46,7 @@ class UsersDAO(BaseDAO):
     ) -> Tuple[list[User], int]:
         """
         Пагинированный поиск пользователей с фильтрами.
+        Исключает удалённых пользователей (deleted_at IS NULL).
         
         Args:
             page: Номер страницы (начиная с 1)
@@ -29,26 +58,35 @@ class UsersDAO(BaseDAO):
         Returns:
             Кортеж (список пользователей, общее количество)
         """
-        # Формируем фильтры
-        filters = {}
+        offset = (page - 1) * per_page
+        
+        # Базовый запрос с фильтром deleted_at IS NULL
+        base_query = select(self.model).where(self.model.deleted_at.is_(None))
+        
+        # Добавляем дополнительные фильтры
+        conditions = []
         if username:
-            filters['username'] = f"%{username}%"
+            conditions.append(self.model.username.like(f"%{username}%"))
         if email:
-            filters['email'] = f"%{email}%"
+            conditions.append(self.model.email.like(f"%{email}%"))
         if is_active is not None:
-            filters['is_active'] = is_active
+            conditions.append(self.model.is_active == is_active)
         
-        # Получаем общее количество с фильтрами
-        total = await self.count_with_filters(filters)
+        if conditions:
+            base_query = base_query.where(*conditions)
         
-        # Получаем пользователей
-        users = await self.find_paginated(
-            page=page,
-            per_page=per_page,
-            filters=filters,
-            order_by='id',
-            order_desc=True
-        )
+        # Получаем общее количество
+        count_query = select(func.count(self.model.id)).where(self.model.deleted_at.is_(None))
+        if conditions:
+            count_query = count_query.where(*conditions)
+        
+        count_result = await self._session.execute(count_query)
+        total = count_result.scalar()
+        
+        # Получаем пользователей с пагинацией
+        base_query = base_query.order_by(self.model.id.desc()).offset(offset).limit(per_page)
+        result = await self._session.execute(base_query)
+        users = result.scalars().all()
         
         return users, total
 
@@ -62,16 +100,13 @@ class UsersDAO(BaseDAO):
         Returns:
             Количество обновлённых записей
         """
-        from sqlalchemy import update
-        from sqlalchemy.sql import literal_column
-        
         stmt = (
             update(self.model)
             .where(self.model.id == user_id)
             .values(deleted_at=datetime.now().isoformat())
         )
         result = await self._session.execute(stmt)
-        await self._session.flush()
+        # Коммит вызовет зависимость (get_session_with_commit), flush не нужен
         return result.rowcount
 
     async def restore(self, user_id: int) -> int:
@@ -84,15 +119,12 @@ class UsersDAO(BaseDAO):
         Returns:
             Количество обновлённых записей
         """
-        from sqlalchemy import update
-        
         stmt = (
             update(self.model)
             .where(self.model.id == user_id)
             .values(deleted_at=None)
         )
         result = await self._session.execute(stmt)
-        await self._session.flush()
         return result.rowcount
 
 
