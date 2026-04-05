@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     SITE_NAME: str = "TTools Shadows"
     # Режим отладки - для localhost делаем False, для production - True
-    DEBUG: Union[bool, str] = False
+    DEBUG: Union[bool, str] = True
     # Настройки scheduler
     SCHEDULER_ENABLED: bool = True
     SCHEDULER_UPDATE_INTERVAL_HOURS: int = 5
