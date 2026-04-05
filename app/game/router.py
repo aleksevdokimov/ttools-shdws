@@ -564,6 +564,8 @@ async def remove_user_server(
     
     # Удаляем
     await user_server_dao.remove_user_server(user_context.user_id, server_id)
+    
+    return {"message": "Сервер удалён"}
 
 
 # === Эндпоинты для работы с игроками и подтверждением ===
